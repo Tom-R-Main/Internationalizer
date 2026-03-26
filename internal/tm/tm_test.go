@@ -71,8 +71,13 @@ func TestTMClear(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tm.jsonl")
 
-	memory, _ := Load(path)
-	memory.Add(Record{Key: "a", Source: "A", Target: "A-fr", Locale: "fr", Hash: HashSource("A"), Timestamp: time.Now()})
+	memory, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := memory.Add(Record{Key: "a", Source: "A", Target: "A-fr", Locale: "fr", Hash: HashSource("A"), Timestamp: time.Now()}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
 
 	if err := memory.Clear(); err != nil {
 		t.Fatalf("Clear: %v", err)
@@ -84,7 +89,10 @@ func TestTMClear(t *testing.T) {
 	}
 
 	// File should be empty.
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
 	if len(data) != 0 {
 		t.Errorf("file not empty after clear: %d bytes", len(data))
 	}

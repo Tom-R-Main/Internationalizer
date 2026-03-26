@@ -40,7 +40,7 @@ func newGlossaryCmd() *cobra.Command {
 		},
 	}
 	list.Flags().String("locale", "", "target locale (required)")
-	list.MarkFlagRequired("locale")
+	_ = list.MarkFlagRequired("locale")
 	list.Flags().StringP("config", "c", "", "path to config file")
 
 	add := &cobra.Command{
@@ -63,11 +63,11 @@ func newGlossaryCmd() *cobra.Command {
 		},
 	}
 	add.Flags().String("locale", "", "target locale (required)")
-	add.MarkFlagRequired("locale")
+	_ = add.MarkFlagRequired("locale")
 	add.Flags().String("source", "", "source term (required)")
-	add.MarkFlagRequired("source")
+	_ = add.MarkFlagRequired("source")
 	add.Flags().String("target", "", "translation (required)")
-	add.MarkFlagRequired("target")
+	_ = add.MarkFlagRequired("target")
 	add.Flags().StringP("config", "c", "", "path to config file")
 
 	remove := &cobra.Command{
@@ -89,9 +89,9 @@ func newGlossaryCmd() *cobra.Command {
 		},
 	}
 	remove.Flags().String("locale", "", "target locale (required)")
-	remove.MarkFlagRequired("locale")
+	_ = remove.MarkFlagRequired("locale")
 	remove.Flags().String("source", "", "source term to remove (required)")
-	remove.MarkFlagRequired("source")
+	_ = remove.MarkFlagRequired("source")
 	remove.Flags().StringP("config", "c", "", "path to config file")
 
 	cmd.AddCommand(list, add, remove)

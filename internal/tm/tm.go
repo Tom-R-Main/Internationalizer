@@ -142,8 +142,12 @@ func (t *TM) AddBatch(records []Record) error {
 		if err != nil {
 			return err
 		}
-		w.Write(line)
-		w.WriteByte('\n')
+		if _, err := w.Write(line); err != nil {
+			return err
+		}
+		if err := w.WriteByte('\n'); err != nil {
+			return err
+		}
 
 		if t.index[rec.Locale] == nil {
 			t.index[rec.Locale] = make(map[string]Record)
@@ -219,8 +223,12 @@ func (t *TM) Compact() error {
 			if err != nil {
 				return err
 			}
-			w.Write(line)
-			w.WriteByte('\n')
+			if _, err := w.Write(line); err != nil {
+				return err
+			}
+			if err := w.WriteByte('\n'); err != nil {
+				return err
+			}
 		}
 	}
 	return w.Flush()

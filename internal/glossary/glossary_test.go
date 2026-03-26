@@ -4,15 +4,18 @@ import (
 	"testing"
 )
 
+func mustAdd(t *testing.T, dir, locale, source, target string) {
+	t.Helper()
+	if err := Add(dir, locale, source, target); err != nil {
+		t.Fatalf("Add(%q, %q, %q): %v", locale, source, target, err)
+	}
+}
+
 func TestAddAndLoad(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := Add(dir, "fr", "Dashboard", "Tableau de bord"); err != nil {
-		t.Fatalf("Add: %v", err)
-	}
-	if err := Add(dir, "fr", "Settings", "Paramètres"); err != nil {
-		t.Fatalf("Add: %v", err)
-	}
+	mustAdd(t, dir, "fr", "Dashboard", "Tableau de bord")
+	mustAdd(t, dir, "fr", "Settings", "Paramètres")
 
 	terms, err := Load(dir, "fr")
 	if err != nil {
@@ -29,10 +32,13 @@ func TestAddAndLoad(t *testing.T) {
 func TestAddUpdatesExisting(t *testing.T) {
 	dir := t.TempDir()
 
-	Add(dir, "fr", "Dashboard", "Tableau de bord")
-	Add(dir, "fr", "Dashboard", "Panneau de contrôle") // update
+	mustAdd(t, dir, "fr", "Dashboard", "Tableau de bord")
+	mustAdd(t, dir, "fr", "Dashboard", "Panneau de contrôle")
 
-	terms, _ := Load(dir, "fr")
+	terms, err := Load(dir, "fr")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
 	if len(terms) != 1 {
 		t.Fatalf("got %d terms, want 1 (should update, not duplicate)", len(terms))
 	}
@@ -44,14 +50,17 @@ func TestAddUpdatesExisting(t *testing.T) {
 func TestRemove(t *testing.T) {
 	dir := t.TempDir()
 
-	Add(dir, "fr", "Dashboard", "Tableau de bord")
-	Add(dir, "fr", "Settings", "Paramètres")
+	mustAdd(t, dir, "fr", "Dashboard", "Tableau de bord")
+	mustAdd(t, dir, "fr", "Settings", "Paramètres")
 
 	if err := Remove(dir, "fr", "Dashboard"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
 
-	terms, _ := Load(dir, "fr")
+	terms, err := Load(dir, "fr")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
 	if len(terms) != 1 {
 		t.Fatalf("got %d terms, want 1", len(terms))
 	}
@@ -62,7 +71,7 @@ func TestRemove(t *testing.T) {
 
 func TestRemoveNotFound(t *testing.T) {
 	dir := t.TempDir()
-	Add(dir, "fr", "Dashboard", "Tableau de bord")
+	mustAdd(t, dir, "fr", "Dashboard", "Tableau de bord")
 
 	err := Remove(dir, "fr", "Nonexistent")
 	if err == nil {
@@ -91,11 +100,10 @@ func TestFormatForPrompt(t *testing.T) {
 	if output == "" {
 		t.Fatal("empty output")
 	}
-	// Should contain markdown table headers.
-	if !contains(output, "Source") || !contains(output, "Translation") {
+	if !containsStr(output, "Source") || !containsStr(output, "Translation") {
 		t.Error("missing table headers")
 	}
-	if !contains(output, "Tableau de bord") {
+	if !containsStr(output, "Tableau de bord") {
 		t.Error("missing term translation")
 	}
 }
@@ -104,10 +112,6 @@ func TestFormatForPromptEmpty(t *testing.T) {
 	if output := FormatForPrompt(nil); output != "" {
 		t.Errorf("expected empty for nil terms, got %q", output)
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsStr(s, substr))
 }
 
 func containsStr(s, sub string) bool {
