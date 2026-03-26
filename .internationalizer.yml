@@ -1,6 +1,39 @@
 source_locale: en
-target_locales: [ar, bn, de, es, fr, hi, id, ja, pa, pt-BR, ru, te, th, uk, yue, zh-CN, zh-TW]
-source_path: docs/i18n/en.md
+target_locales:
+  # Original 17
+  - ar
+  - bn
+  - de
+  - es
+  - fr
+  - hi
+  - id
+  - ja
+  - pa
+  - pt-BR
+  - ru
+  - te
+  - th
+  - uk
+  - yue
+  - zh-CN
+  - zh-TW
+  # Expanded 14
+  - ko
+  - tr
+  - vi
+  - pl
+  - nl
+  - sv
+  - it
+  - cs
+  - el
+  - he
+  - ms
+  - fi
+  - da
+  - ro
+source_path: README.md
 
 llm:
   provider: gemini
