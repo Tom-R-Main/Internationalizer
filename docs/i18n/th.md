@@ -1,5 +1,7 @@
+> [English (original)](../../README.md)
+
 <p align="center">
-  <img src="assets/logo.svg" alt="Internationalizer" width="480">
+  <img src="../../assets/logo.svg" alt="Internationalizer" width="480">
 </p>
 
 # Internationalizer
