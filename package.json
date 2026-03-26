@@ -1,0 +1,48 @@
+{
+  "name": "internationalizer",
+  "version": "0.1.0",
+  "description": "AI-native internationalization CLI for software projects",
+  "license": "AGPL-3.0",
+  "bin": {
+    "internationalizer": "./bin/internationalizer.js"
+  },
+  "files": [
+    "bin",
+    "assets",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "internationalizer-darwin-arm64": "0.1.0",
+    "internationalizer-darwin-x64": "0.1.0",
+    "internationalizer-linux-arm64": "0.1.0",
+    "internationalizer-linux-x64": "0.1.0",
+    "internationalizer-win32-x64": "0.1.0"
+  },
+  "scripts": {
+    "test:npm-wrapper": "node --test test/npm-wrapper.test.cjs",
+    "check:npm-versions": "node ./scripts/check-npm-package-versions.mjs",
+    "pack:dry-run": "npm pack --dry-run"
+  },
+  "keywords": [
+    "i18n",
+    "localization",
+    "translation",
+    "cli",
+    "gemini"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tom-R-Main/Internationalizer.git"
+  },
+  "homepage": "https://github.com/Tom-R-Main/Internationalizer#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "bugs": {
+    "url": "https://github.com/Tom-R-Main/Internationalizer/issues"
+  }
+}

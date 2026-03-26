@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="100%" height="100%">
+  <rect width="100%" height="100%" fill="#26323D" />
+
+  <g stroke-linecap="round" stroke-linejoin="round" fill="none">
+    
+    <path d="M 400 260 L 495 292 L 630 355" stroke="#EBB059" stroke-width="6" />
+
+    <path d="M 400 260 L 485 276 L 640 320" stroke="#DF5C8F" stroke-width="6" />
+
+    <path d="M 160 260 L 475 260 L 650 285" stroke="#88E1DF" stroke-width="6" />
+
+    <polygon points="400,140 250,380 550,380" stroke="#88E1DF" stroke-width="6" />
+
+  </g>
+
+  <g text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace" fill="#88E1DF">
+    <text x="400" y="470" font-size="46" font-weight="bold" letter-spacing="3">INTERNATIONALIZER</text>
+    <text x="400" y="520" font-size="20" letter-spacing="2">AI-NATIVE i18n PIPELINE</text>
+  </g>
+</svg>

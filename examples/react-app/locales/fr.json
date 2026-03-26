@@ -1,0 +1,10 @@
+{
+  "common": {
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer"
+  },
+  "dashboard": {
+    "title": "Tableau de bord"
+  }
+}

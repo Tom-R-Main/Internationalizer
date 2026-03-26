@@ -1,0 +1,19 @@
+# Internationalizer configuration
+# Copy this file to .internationalizer.yml and customize for your project.
+
+source_locale: en
+target_locales: [fr, de, es, ja]
+source_path: locales/en.json
+
+llm:
+  provider: gemini                 # recommended via AI Studio; or "anthropic", "openai", "openrouter"
+  model: gemini-3.1-pro-preview    # or "claude-sonnet-4-6" / "gpt-5.4" / "google/gemini-3-flash-preview"
+  api_key_env: GOOGLE_AI_STUDIO_API_KEY   # env var containing your API key
+  # base_url: https://api.openai.com  # for OpenAI-compatible endpoints
+
+batch_size: 40        # keys per LLM call
+concurrency: 4        # parallel locale translations
+
+style_guides_dir: style-guides   # Markdown style guides per locale
+glossary_dir: glossary           # JSON glossary files per locale
+tm_path: .internationalizer/tm.jsonl  # translation memory cache

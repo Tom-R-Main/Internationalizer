@@ -1,0 +1,5 @@
+/internationalizer
+*.exe
+.internationalizer/
+dist/
+/*.tgz

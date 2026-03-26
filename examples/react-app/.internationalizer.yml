@@ -1,0 +1,14 @@
+source_locale: en
+target_locales: [fr, es]
+source_path: locales/en.json
+
+llm:
+  provider: gemini
+  model: gemini-3.1-pro-preview
+  api_key_env: GOOGLE_AI_STUDIO_API_KEY
+
+batch_size: 40
+concurrency: 4
+
+style_guides_dir: style-guides
+glossary_dir: glossary

@@ -1,0 +1,29 @@
+[
+  {
+    "source": "Dashboard",
+    "target": "Tableau de bord",
+    "whole_word": true
+  },
+  {
+    "source": "Settings",
+    "target": "Paramètres",
+    "whole_word": true
+  },
+  {
+    "source": "Timezone",
+    "target": "Fuseau horaire",
+    "whole_word": true
+  },
+  {
+    "source": "Notifications",
+    "target": "Notifications"
+  },
+  {
+    "source": "Log in",
+    "target": "Se connecter"
+  },
+  {
+    "source": "Sign up",
+    "target": "S'inscrire"
+  }
+]

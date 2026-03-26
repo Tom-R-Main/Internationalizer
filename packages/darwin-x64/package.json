@@ -1,0 +1,19 @@
+{
+  "name": "internationalizer-darwin-x64",
+  "version": "0.1.0",
+  "description": "darwin x64 binary for the internationalizer CLI",
+  "license": "AGPL-3.0",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

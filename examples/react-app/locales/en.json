@@ -1,0 +1,36 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "loading": "Loading...",
+    "error": "Something went wrong. Please try again.",
+    "confirm": "Are you sure?"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "welcome": "Welcome back, {{name}}!",
+    "tasks_one": "{{count}} task remaining",
+    "tasks_other": "{{count}} tasks remaining",
+    "empty": "No tasks yet. <strong>Create one</strong> to get started."
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "timezone": "Timezone",
+    "notifications": "Notifications",
+    "saved": "Settings updated successfully."
+  },
+  "auth": {
+    "login": "Log in",
+    "logout": "Log out",
+    "signup": "Sign up",
+    "forgot_password": "Forgot your password?",
+    "reset_sent": "Password reset email sent to {{email}}."
+  },
+  "errors": {
+    "not_found": "Page not found.",
+    "unauthorized": "You don't have access to this page.",
+    "network": "Network error. Check your connection and try again."
+  }
+}
