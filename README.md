@@ -182,7 +182,7 @@ llm:
 
   # Model name defaults by provider:
   #   anthropic:  claude-sonnet-4-6
-  #   openai:     gpt-5.4
+  #   openai:     gpt-5.5
   #   gemini:     gemini-3.1-pro-preview
   #   openrouter: google/gemini-3-flash-preview
   model: gemini-3.1-pro-preview
@@ -192,6 +192,9 @@ llm:
 
   # Base URL for OpenAI-compatible endpoints (optional)
   # base_url: https://api.openai.com
+
+  # OpenAI GPT-5-series Responses API reasoning effort (optional)
+  # reasoning_effort: low
 
 # Keys per LLM call (default: 40)
 batch_size: 40

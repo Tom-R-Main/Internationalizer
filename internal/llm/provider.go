@@ -52,11 +52,11 @@ func NewProvider(cfg config.LLM, apiKey string) (Provider, error) {
 		if baseURL == "" {
 			baseURL = "https://api.openai.com"
 		}
-		return NewOpenAI(apiKey, cfg.Model, baseURL), nil
+		return NewOpenAI(apiKey, cfg.Model, baseURL, cfg.ReasoningEffort), nil
 	case "gemini":
 		return NewGemini(apiKey, cfg.Model), nil
 	case "openrouter":
-		return NewOpenAI(apiKey, cfg.Model, "https://openrouter.ai/api/v1"), nil
+		return NewOpenAI(apiKey, cfg.Model, "https://openrouter.ai/api/v1", ""), nil
 	default:
 		return nil, fmt.Errorf("unknown LLM provider: %s (supported: anthropic, openai, gemini, openrouter)", cfg.Provider)
 	}

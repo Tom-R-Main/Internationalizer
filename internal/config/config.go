@@ -22,10 +22,11 @@ type Config struct {
 }
 
 type LLM struct {
-	Provider  string `yaml:"provider"`
-	Model     string `yaml:"model"`
-	APIKeyEnv string `yaml:"api_key_env"`
-	BaseURL   string `yaml:"base_url"`
+	Provider        string `yaml:"provider"`
+	Model           string `yaml:"model"`
+	APIKeyEnv       string `yaml:"api_key_env"`
+	BaseURL         string `yaml:"base_url"`
+	ReasoningEffort string `yaml:"reasoning_effort"`
 }
 
 func (c *Config) ApplyDefaults() {
@@ -55,7 +56,7 @@ func (c *Config) ApplyDefaults() {
 		case "anthropic":
 			c.LLM.Model = "claude-sonnet-4-6"
 		case "openai":
-			c.LLM.Model = "gpt-5.4"
+			c.LLM.Model = "gpt-5.5"
 		case "gemini":
 			c.LLM.Model = "gemini-3.1-pro-preview"
 		case "openrouter":

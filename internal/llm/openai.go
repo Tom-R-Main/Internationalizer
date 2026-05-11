@@ -15,17 +15,18 @@ import (
 // OpenAI implements the Provider interface using the OpenAI Responses API.
 // Also used for OpenRouter and other compatible endpoints via base_url.
 type OpenAI struct {
-	apiKey  string
-	model   string
-	baseURL string
-	client  *http.Client
+	apiKey          string
+	model           string
+	baseURL         string
+	reasoningEffort string
+	client          *http.Client
 	// useCompat forces Chat Completions API for non-OpenAI endpoints (e.g. OpenRouter).
 	useCompat bool
 }
 
-func NewOpenAI(apiKey, model, baseURL string) *OpenAI {
+func NewOpenAI(apiKey, model, baseURL, reasoningEffort string) *OpenAI {
 	if model == "" {
-		model = "gpt-5.4"
+		model = "gpt-5.5"
 	}
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
@@ -34,11 +35,12 @@ func NewOpenAI(apiKey, model, baseURL string) *OpenAI {
 	// Use Chat Completions for non-OpenAI endpoints (OpenRouter, Ollama, etc.)
 	useCompat := !strings.Contains(baseURL, "api.openai.com")
 	return &OpenAI{
-		apiKey:    apiKey,
-		model:     model,
-		baseURL:   baseURL,
-		client:    &http.Client{Timeout: 120 * time.Second},
-		useCompat: useCompat,
+		apiKey:          apiKey,
+		model:           model,
+		baseURL:         baseURL,
+		reasoningEffort: reasoningEffort,
+		client:          &http.Client{Timeout: 120 * time.Second},
+		useCompat:       useCompat,
 	}
 }
 
@@ -77,12 +79,19 @@ func (o *OpenAI) Translate(ctx context.Context, req TranslateRequest) (*Translat
 
 // buildResponsesBody creates a request body for the OpenAI Responses API.
 func (o *OpenAI) buildResponsesBody(systemPrompt, userInput string, temp float64) map[string]interface{} {
-	return map[string]interface{}{
+	body := map[string]interface{}{
 		"model":        o.model,
 		"instructions": systemPrompt,
 		"input":        userInput,
-		"temperature":  temp,
 	}
+	if o.isGPT5SeriesModel() {
+		if o.reasoningEffort != "" {
+			body["reasoning"] = map[string]string{"effort": o.reasoningEffort}
+		}
+		return body
+	}
+	body["temperature"] = temp
+	return body
 }
 
 // buildChatCompletionsBody creates a request body for the Chat Completions API
@@ -99,6 +108,10 @@ func (o *OpenAI) buildChatCompletionsBody(systemPrompt, userInput string, temp f
 			{"role": "user", "content": userInput},
 		},
 	}
+}
+
+func (o *OpenAI) isGPT5SeriesModel() bool {
+	return strings.HasPrefix(o.model, "gpt-5")
 }
 
 func (o *OpenAI) doRequest(ctx context.Context, body map[string]interface{}) (*TranslateResponse, error) {
