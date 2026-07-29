@@ -94,7 +94,7 @@ func (g *Gemini) doRequest(ctx context.Context, body map[string]interface{}) (*T
 	if err != nil {
 		return nil, fmt.Errorf("gemini request: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	respBody, err := io.ReadAll(httpResp.Body)
 	if err != nil {

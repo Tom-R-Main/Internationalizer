@@ -50,7 +50,7 @@ func Load(path string) (*TM, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening TM %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -100,7 +100,7 @@ func (t *TM) Add(rec Record) error {
 	if err != nil {
 		return fmt.Errorf("opening TM for write: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	line, err := json.Marshal(rec)
 	if err != nil {
@@ -134,7 +134,7 @@ func (t *TM) AddBatch(records []Record) error {
 	if err != nil {
 		return fmt.Errorf("opening TM for write: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	w := bufio.NewWriter(f)
 	for _, rec := range records {
@@ -214,7 +214,7 @@ func (t *TM) Compact() error {
 	if err != nil {
 		return fmt.Errorf("creating TM for compact: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	w := bufio.NewWriter(f)
 	for _, keys := range t.index {

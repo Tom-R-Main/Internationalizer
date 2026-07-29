@@ -48,10 +48,10 @@ func (a *Anthropic) Translate(ctx context.Context, req TranslateRequest) (*Trans
 	maxTokens := max(4096, len(inputJSON)*4)
 
 	body := map[string]interface{}{
-		"model":      a.model,
-		"max_tokens": maxTokens,
+		"model":       a.model,
+		"max_tokens":  maxTokens,
 		"temperature": temp,
-		"system":     req.SystemPrompt,
+		"system":      req.SystemPrompt,
 		"messages": []map[string]interface{}{
 			{
 				"role":    "user",
@@ -87,7 +87,7 @@ func (a *Anthropic) doRequest(ctx context.Context, body map[string]interface{}) 
 	if err != nil {
 		return nil, fmt.Errorf("anthropic request: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	respBody, err := io.ReadAll(httpResp.Body)
 	if err != nil {

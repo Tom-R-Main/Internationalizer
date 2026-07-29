@@ -167,28 +167,33 @@ func FormatHuman(reports []Report) string {
 			hasErrors = true
 		}
 
-		b.WriteString(fmt.Sprintf("[%s] %s — %.1f%% coverage", r.Locale, status, r.Coverage))
+		fmt.Fprintf(&b, "[%s] %s — %.1f%% coverage", r.Locale, status, r.Coverage)
 
 		if len(r.Missing) > 0 {
-			b.WriteString(fmt.Sprintf(", %d missing", len(r.Missing)))
+			fmt.Fprintf(&b, ", %d missing", len(r.Missing))
 		}
 		if len(r.Extra) > 0 {
-			b.WriteString(fmt.Sprintf(", %d extra", len(r.Extra)))
+			fmt.Fprintf(&b, ", %d extra", len(r.Extra))
 		}
 		if len(r.Mismatches) > 0 {
-			b.WriteString(fmt.Sprintf(", %d interpolation mismatches", len(r.Mismatches)))
+			fmt.Fprintf(&b, ", %d interpolation mismatches", len(r.Mismatches))
 		}
 		b.WriteString("\n")
 
 		// Show details for failures.
 		if len(r.Missing) > 0 && len(r.Missing) <= 20 {
 			for _, key := range r.Missing {
-				b.WriteString(fmt.Sprintf("  - missing: %s\n", key))
+				fmt.Fprintf(&b, "  - missing: %s\n", key)
 			}
 		}
 		for _, m := range r.Mismatches {
-			b.WriteString(fmt.Sprintf("  - mismatch: %s (source: %v, target: %v)\n",
-				m.Key, m.SourceVars, m.TargetVars))
+			fmt.Fprintf(
+				&b,
+				"  - mismatch: %s (source: %v, target: %v)\n",
+				m.Key,
+				m.SourceVars,
+				m.TargetVars,
+			)
 		}
 	}
 
