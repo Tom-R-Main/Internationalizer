@@ -95,7 +95,7 @@ func BuildSystemPrompt(sourceLocale, targetLocale, styleGuide string, terms []gl
 			if t.WholeWord {
 				notes = "whole word match"
 			}
-			b.WriteString(fmt.Sprintf("| %s | %s | %s |\n", t.Source, t.Target, notes))
+			fmt.Fprintf(&b, "| %s | %s | %s |\n", t.Source, t.Target, notes)
 		}
 	}
 
@@ -130,7 +130,7 @@ func BuildDocumentPrompt(sourceLocale, targetLocale, styleGuide string, terms []
 		b.WriteString("| Source | Translation |\n")
 		b.WriteString("|--------|-------------|\n")
 		for _, t := range terms {
-			b.WriteString(fmt.Sprintf("| %s | %s |\n", t.Source, t.Target))
+			fmt.Fprintf(&b, "| %s | %s |\n", t.Source, t.Target)
 		}
 	}
 
