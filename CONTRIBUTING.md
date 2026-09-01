@@ -14,7 +14,7 @@ This adds a `Signed-off-by: Your Name <your@email.com>` line to your commit mess
 
 ## Development Setup
 
-1. Install Go 1.22 or later
+1. Install Go 1.25 or later
 2. Clone the repository:
    ```
    git clone https://github.com/Tom-R-Main/Internationalizer.git
@@ -28,11 +28,16 @@ This adds a `Signed-off-by: Your Name <your@email.com>` line to your commit mess
    ```
    go test ./... -race
    ```
+5. Install the `golangci-lint` version pinned in `.golangci-lint-version`, then run:
+   ```
+   golangci-lint run
+   ```
 
 ## Code Style
 
 - Run `gofmt` on all Go files before committing
 - Run `go vet ./...` to catch common issues
+- Run `golangci-lint run` using the pinned project version
 - Follow standard Go conventions and idioms
 - Keep error messages lowercase (Go convention)
 - Prefer returning errors over panicking
@@ -43,8 +48,9 @@ This adds a `Signed-off-by: Your Name <your@email.com>` line to your commit mess
 2. Make your changes with clear, descriptive commit messages
 3. Ensure all tests pass: `go test ./... -race`
 4. Ensure code compiles cleanly: `go build ./...`
-5. Sign off all commits (DCO requirement)
-6. Open a pull request with a clear description of what and why
+5. Ensure lint passes: `golangci-lint run`
+6. Sign off all commits (DCO requirement)
+7. Open a pull request with a clear description of what and why
 
 ## Reporting Issues
 
