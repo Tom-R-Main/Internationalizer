@@ -1,6 +1,10 @@
 package llm
 
-import "testing"
+import (
+	"encoding/json"
+	"reflect"
+	"testing"
+)
 
 func TestParseTranslationResponse_RawJSON(t *testing.T) {
 	input := `{"common.save": "Enregistrer", "common.cancel": "Annuler"}`
@@ -70,4 +74,34 @@ func TestParseTranslationResponse_RejectsNonStringLeaves(t *testing.T) {
 			}
 		})
 	}
+}
+
+func FuzzParseTranslationResponseRoundTrip(f *testing.F) {
+	for _, seed := range []string{
+		`{"save":"Save"}`,
+		`{"common":{"welcome":"Hello, {name}"}}`,
+		"```json\n{\"save\":\"Save\"}\n```",
+		`not JSON`,
+		`{"value":null}`,
+	} {
+		f.Add(seed)
+	}
+
+	f.Fuzz(func(t *testing.T, input string) {
+		parsed, err := ParseTranslationResponse(input)
+		if err != nil {
+			return
+		}
+		canonical, err := json.Marshal(parsed)
+		if err != nil {
+			t.Fatalf("marshalling successful parse: %v", err)
+		}
+		roundTripped, err := ParseTranslationResponse(string(canonical))
+		if err != nil {
+			t.Fatalf("parsing canonical response: %v", err)
+		}
+		if !reflect.DeepEqual(roundTripped, parsed) {
+			t.Fatalf("round trip = %#v, want %#v", roundTripped, parsed)
+		}
+	})
 }

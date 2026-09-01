@@ -1,0 +1,5 @@
+welcome: Hello, {name}
+steps:
+  - One
+  - Two
+enabled: true

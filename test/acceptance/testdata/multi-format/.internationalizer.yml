@@ -1,0 +1,17 @@
+source_locale: en
+target_locales: [fr]
+bundles:
+  - id: json
+    source: locales/en/app.json
+    target: locales/{locale}/app.json
+  - id: yaml
+    source: locales/en/app.yaml
+    target: locales/{locale}/app.yaml
+  - id: docs
+    source: locales/en/readme.md
+    target: locales/{locale}/readme.md
+llm:
+  provider: openai
+  model: gpt-5.6-luna
+manifest_path: .internationalizer.lock
+tm_path: .internationalizer/tm.jsonl
