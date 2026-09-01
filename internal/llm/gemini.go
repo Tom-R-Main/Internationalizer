@@ -9,6 +9,8 @@ import (
 	"math"
 	"net/http"
 	"time"
+
+	"github.com/Tom-R-Main/Internationalizer/internal/config"
 )
 
 type Gemini struct {
@@ -19,7 +21,7 @@ type Gemini struct {
 
 func NewGemini(apiKey, model string) *Gemini {
 	if model == "" {
-		model = "gemini-3.1-pro-preview"
+		model = config.DefaultGeminiModel
 	}
 	return &Gemini{
 		apiKey: apiKey,

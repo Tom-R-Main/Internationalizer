@@ -1,0 +1,154 @@
+// Package state persists the content-addressed provenance used to decide
+// whether an existing translation is current, stale, or manually edited.
+package state
+
+import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+const SchemaVersion = 1
+
+// Manifest is the versioned on-disk translation state.
+type Manifest struct {
+	SchemaVersion int              `json:"schema_version"`
+	Translations  map[string]Entry `json:"translations"`
+}
+
+// Entry records the inputs and output for one bundle key and target locale.
+type Entry struct {
+	Bundle     string    `json:"bundle"`
+	Key        string    `json:"key"`
+	Locale     string    `json:"locale"`
+	SourceHash string    `json:"source_hash"`
+	PolicyHash string    `json:"policy_hash"`
+	TargetHash string    `json:"target_hash"`
+	Origin     string    `json:"origin,omitempty"`
+	Provider   string    `json:"provider,omitempty"`
+	Model      string    `json:"model,omitempty"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// New returns an empty manifest using the current schema.
+func New() *Manifest {
+	return &Manifest{
+		SchemaVersion: SchemaVersion,
+		Translations:  make(map[string]Entry),
+	}
+}
+
+// Load reads a manifest. A missing file is an empty manifest; malformed or
+// unsupported state is an error because treating it as absent loses provenance.
+func Load(path string) (*Manifest, error) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return New(), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading manifest %s: %w", path, err)
+	}
+
+	var manifest Manifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil, fmt.Errorf("parsing manifest %s: %w", path, err)
+	}
+	if manifest.SchemaVersion != SchemaVersion {
+		return nil, fmt.Errorf("manifest %s uses schema version %d; supported version is %d", path, manifest.SchemaVersion, SchemaVersion)
+	}
+	if manifest.Translations == nil {
+		manifest.Translations = make(map[string]Entry)
+	}
+	return &manifest, nil
+}
+
+// Save replaces the manifest only after the complete new file is durable.
+func (m *Manifest) Save(path string) error {
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding manifest: %w", err)
+	}
+	return WriteFileAtomic(path, append(data, '\n'), 0o644)
+}
+
+// Get returns the recorded state for one logical translation identity.
+func (m *Manifest) Get(bundle, key, locale string) (Entry, bool) {
+	entry, ok := m.Translations[Identity(bundle, key, locale)]
+	return entry, ok
+}
+
+// Set records one logical translation identity.
+func (m *Manifest) Set(entry Entry) {
+	if m.Translations == nil {
+		m.Translations = make(map[string]Entry)
+	}
+	m.Translations[Identity(entry.Bundle, entry.Key, entry.Locale)] = entry
+}
+
+// Identity returns a stable full SHA-256 identifier for a logical translation.
+func Identity(bundle, key, locale string) string {
+	return hashBytes([]byte(bundle + "\x00" + key + "\x00" + locale))
+}
+
+// SourceHash binds translation reuse to both content and source format.
+func SourceHash(format, source string) string {
+	canonical := fmt.Sprintf("1:%d:%s:%d:%s", len(format), format, len(source), source)
+	return hashBytes([]byte(canonical))
+}
+
+// TargetHash records the exact translated value last applied or adopted.
+func TargetHash(target string) string {
+	return hashBytes([]byte(target))
+}
+
+// HashValue produces a deterministic SHA-256 hash of a JSON-serializable value.
+func HashValue(value interface{}) (string, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return "", fmt.Errorf("encoding hash input: %w", err)
+	}
+	return hashBytes(data), nil
+}
+
+func hashBytes(data []byte) string {
+	hash := sha256.Sum256(data)
+	return fmt.Sprintf("%x", hash)
+}
+
+// WriteFileAtomic writes data to a temporary sibling, syncs it, then renames it
+// over path. The existing file remains untouched if preparation fails.
+func WriteFileAtomic(path string, data []byte, perm os.FileMode) (err error) {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating directory %s: %w", dir, err)
+	}
+	tmp, err := os.CreateTemp(dir, ".internationalizer-*")
+	if err != nil {
+		return fmt.Errorf("creating temporary file for %s: %w", path, err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+	}()
+
+	if err := tmp.Chmod(perm); err != nil {
+		return fmt.Errorf("setting permissions for %s: %w", path, err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		return fmt.Errorf("writing temporary file for %s: %w", path, err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("syncing temporary file for %s: %w", path, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("closing temporary file for %s: %w", path, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replacing %s: %w", path, err)
+	}
+	return nil
+}

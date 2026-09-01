@@ -37,6 +37,16 @@ func FormatForFile(filename string) (Format, error) {
 	return nil, fmt.Errorf("unsupported file format: %s", ext)
 }
 
+// FormatByName returns a registered format by its stable configuration name.
+func FormatByName(name string) (Format, error) {
+	for _, f := range registry {
+		if f.Name() == strings.ToLower(name) {
+			return f, nil
+		}
+	}
+	return nil, fmt.Errorf("unsupported format: %s", name)
+}
+
 // AllFormats returns all registered format handlers.
 func AllFormats() []Format {
 	return registry

@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/Tom-R-Main/Internationalizer/internal/config"
 )
 
 // OpenAI implements the Provider interface using the OpenAI Responses API.
@@ -18,6 +20,7 @@ type OpenAI struct {
 	apiKey          string
 	model           string
 	baseURL         string
+	providerName    string
 	reasoningEffort string
 	client          *http.Client
 	// useCompat forces Chat Completions API for non-OpenAI endpoints (e.g. OpenRouter).
@@ -26,7 +29,7 @@ type OpenAI struct {
 
 func NewOpenAI(apiKey, model, baseURL, reasoningEffort string) *OpenAI {
 	if model == "" {
-		model = "gpt-5.5"
+		model = config.DefaultOpenAIModel
 	}
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
@@ -34,17 +37,31 @@ func NewOpenAI(apiKey, model, baseURL, reasoningEffort string) *OpenAI {
 	baseURL = strings.TrimRight(baseURL, "/")
 	// Use Chat Completions for non-OpenAI endpoints (OpenRouter, Ollama, etc.)
 	useCompat := !strings.Contains(baseURL, "api.openai.com")
+	if !useCompat && reasoningEffort == "" && strings.HasPrefix(model, "gpt-5.6") {
+		reasoningEffort = config.DefaultOpenAIReasoning
+	}
 	return &OpenAI{
 		apiKey:          apiKey,
 		model:           model,
 		baseURL:         baseURL,
+		providerName:    "openai",
 		reasoningEffort: reasoningEffort,
 		client:          &http.Client{Timeout: 120 * time.Second},
 		useCompat:       useCompat,
 	}
 }
 
-func (o *OpenAI) Name() string { return "openai" }
+// NewOpenRouter creates the OpenAI-compatible provider used by OpenRouter.
+func NewOpenRouter(apiKey, model string) *OpenAI {
+	if model == "" {
+		model = config.DefaultOpenRouterModel
+	}
+	provider := NewOpenAI(apiKey, model, "https://openrouter.ai/api", "")
+	provider.providerName = "openrouter"
+	return provider
+}
+
+func (o *OpenAI) Name() string { return o.providerName }
 
 func (o *OpenAI) Translate(ctx context.Context, req TranslateRequest) (*TranslateResponse, error) {
 	input := make(map[string]string, len(req.Entries))

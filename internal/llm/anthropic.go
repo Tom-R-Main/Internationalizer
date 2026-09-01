@@ -9,6 +9,8 @@ import (
 	"math"
 	"net/http"
 	"time"
+
+	"github.com/Tom-R-Main/Internationalizer/internal/config"
 )
 
 type Anthropic struct {
@@ -19,7 +21,7 @@ type Anthropic struct {
 
 func NewAnthropic(apiKey, model string) *Anthropic {
 	if model == "" {
-		model = "claude-sonnet-4-6"
+		model = config.DefaultAnthropicModel
 	}
 	return &Anthropic{
 		apiKey: apiKey,
@@ -41,17 +43,14 @@ func (a *Anthropic) Translate(ctx context.Context, req TranslateRequest) (*Trans
 		return nil, fmt.Errorf("marshal input: %w", err)
 	}
 
-	temp := req.Temperature
-	if temp == 0 {
-		temp = 0.1
-	}
 	maxTokens := max(4096, len(inputJSON)*4)
 
+	// Claude Opus 5 rejects non-default sampling parameters. Translation
+	// consistency is controlled through the prompt instead.
 	body := map[string]interface{}{
-		"model":       a.model,
-		"max_tokens":  maxTokens,
-		"temperature": temp,
-		"system":      req.SystemPrompt,
+		"model":      a.model,
+		"max_tokens": maxTokens,
+		"system":     req.SystemPrompt,
 		"messages": []map[string]interface{}{
 			{
 				"role":    "user",

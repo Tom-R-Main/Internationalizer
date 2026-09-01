@@ -56,7 +56,7 @@ func NewProvider(cfg config.LLM, apiKey string) (Provider, error) {
 	case "gemini":
 		return NewGemini(apiKey, cfg.Model), nil
 	case "openrouter":
-		return NewOpenAI(apiKey, cfg.Model, "https://openrouter.ai/api/v1", ""), nil
+		return NewOpenRouter(apiKey, cfg.Model), nil
 	default:
 		return nil, fmt.Errorf("unknown LLM provider: %s (supported: anthropic, openai, gemini, openrouter)", cfg.Provider)
 	}
@@ -95,7 +95,7 @@ func BuildSystemPrompt(sourceLocale, targetLocale, styleGuide string, terms []gl
 			if t.WholeWord {
 				notes = "whole word match"
 			}
-			fmt.Fprintf(&b, "| %s | %s | %s |\n", t.Source, t.Target, notes)
+			_, _ = fmt.Fprintf(&b, "| %s | %s | %s |\n", t.Source, t.Target, notes)
 		}
 	}
 
@@ -122,7 +122,8 @@ func BuildDocumentPrompt(sourceLocale, targetLocale, styleGuide string, terms []
 	b.WriteString("- Preserve all Markdown formatting (headings, links, code blocks, lists).\n")
 	b.WriteString("- Preserve interpolation variables exactly: {{variable}}, {variable}, %{variable}.\n")
 	b.WriteString("- Do not translate code blocks or inline code.\n")
-	b.WriteString("- Do not add commentary — output only the translated document.\n")
+	b.WriteString("- Return a JSON object with the original _content key mapped to the translated document.\n")
+	b.WriteString("- Do not add commentary or keys other than _content.\n")
 	b.WriteString("- Keep brand names and technical terms in English unless the glossary specifies otherwise.\n")
 
 	if len(terms) > 0 {
@@ -130,7 +131,7 @@ func BuildDocumentPrompt(sourceLocale, targetLocale, styleGuide string, terms []
 		b.WriteString("| Source | Translation |\n")
 		b.WriteString("|--------|-------------|\n")
 		for _, t := range terms {
-			fmt.Fprintf(&b, "| %s | %s |\n", t.Source, t.Target)
+			_, _ = fmt.Fprintf(&b, "| %s | %s |\n", t.Source, t.Target)
 		}
 	}
 

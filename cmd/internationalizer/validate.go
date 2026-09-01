@@ -2,13 +2,15 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
 
 	"github.com/Tom-R-Main/Internationalizer/internal/config"
 	"github.com/Tom-R-Main/Internationalizer/internal/validate"
 	"github.com/spf13/cobra"
 )
+
+var errValidationFailed = errors.New("validation failed")
 
 func newValidateCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -31,20 +33,19 @@ func newValidateCmd() *cobra.Command {
 			quiet, _ := cmd.Flags().GetBool("quiet")
 
 			if asJSON {
-				enc := json.NewEncoder(os.Stdout)
+				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
-				return enc.Encode(reports)
-			}
-
-			if !quiet {
-				fmt.Print(validate.FormatHuman(reports))
-			}
-
-			// Exit 1 if any locale has errors.
-			for _, r := range reports {
-				if len(r.Missing) > 0 || len(r.Mismatches) > 0 {
-					os.Exit(1)
+				if err := enc.Encode(reports); err != nil {
+					return err
 				}
+			} else if !quiet {
+				if _, err := fmt.Fprint(cmd.OutOrStdout(), validate.FormatHuman(reports)); err != nil {
+					return err
+				}
+			}
+
+			if validate.HasFailures(reports) {
+				return errValidationFailed
 			}
 			return nil
 		},

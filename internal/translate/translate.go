@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,257 +13,633 @@ import (
 	"github.com/Tom-R-Main/Internationalizer/internal/formats"
 	"github.com/Tom-R-Main/Internationalizer/internal/glossary"
 	"github.com/Tom-R-Main/Internationalizer/internal/llm"
+	"github.com/Tom-R-Main/Internationalizer/internal/state"
 	"github.com/Tom-R-Main/Internationalizer/internal/styleguide"
 	"github.com/Tom-R-Main/Internationalizer/internal/tm"
 )
 
+const promptPolicyVersion = 1
+
 // Options configures a translation run.
 type Options struct {
-	DryRun      bool
-	Locales     []string // filter to specific locales; empty = all from config
-	BatchSize   int      // override config; 0 = use config
-	Concurrency int      // override config; 0 = use config
+	DryRun        bool
+	AdoptExisting bool
+	RefreshPolicy bool
+	Locales       []string // filter to specific locales; empty = all from config
+	BatchSize     int      // override config; 0 = use config
+	Concurrency   int      // override config; 0 = use config
 }
 
-// Result holds the outcome of a translation run.
+// Result holds the outcome of one bundle and locale. Lifecycle counters are
+// pre-run observations; manual, source-stale, and policy-stale may overlap.
 type Result struct {
-	Locale         string
-	KeysTotal      int
-	KeysCached     int
-	KeysTranslated int
-	KeysSkipped    int
-	Batches        int
-	TokensIn       int
-	TokensOut      int
-	Errors         []string
+	Bundle          string
+	Locale          string
+	TargetPath      string
+	KeysTotal       int
+	KeysMissing     int
+	KeysSourceStale int
+	KeysPolicyStale int
+	KeysManualEdit  int
+	KeysUntracked   int
+	KeysCurrent     int
+	KeysCached      int
+	KeysTranslated  int
+	KeysSkipped     int
+	Batches         int
+	TokensIn        int
+	TokensOut       int
+	Errors          []string
+}
+
+// RunError reports that one or more locale jobs failed. Results remain
+// available to the caller for human- or machine-readable reporting.
+type RunError struct {
+	Failed int
+}
+
+func (e *RunError) Error() string {
+	return fmt.Sprintf("translation failed for %d bundle/locale job(s)", e.Failed)
+}
+
+type preparedBundle struct {
+	bundle     config.Bundle
+	format     formats.Format
+	sourceKeys map[string]string
+	sourceData []byte
+}
+
+type job struct {
+	index  int
+	bundle preparedBundle
+	locale string
+}
+
+type jobOutput struct {
+	result  Result
+	updates []state.Entry
 }
 
 // Run executes the translation pipeline.
 func Run(ctx context.Context, cfg *config.Config, provider llm.Provider, opts Options) ([]Result, error) {
+	effectiveConfig := *cfg
+	effectiveConfig.ApplyDefaults()
+	cfg = &effectiveConfig
+	if err := cfg.ValidateProject(); err != nil {
+		return nil, err
+	}
+
 	batchSize := cfg.BatchSize
 	if opts.BatchSize > 0 {
 		batchSize = opts.BatchSize
+	}
+	if batchSize <= 0 {
+		batchSize = 40
 	}
 	concurrency := cfg.Concurrency
 	if opts.Concurrency > 0 {
 		concurrency = opts.Concurrency
 	}
+	if concurrency <= 0 {
+		concurrency = 1
+	}
 
-	// Determine target locales.
 	locales := cfg.TargetLocales
 	if len(opts.Locales) > 0 {
-		locales = opts.Locales
+		configured := make(map[string]struct{}, len(cfg.TargetLocales))
+		for _, locale := range cfg.TargetLocales {
+			configured[locale] = struct{}{}
+		}
+		seen := make(map[string]struct{}, len(opts.Locales))
+		locales = make([]string, 0, len(opts.Locales))
+		for _, locale := range opts.Locales {
+			if _, ok := configured[locale]; !ok {
+				return nil, fmt.Errorf("locale %q is not in target_locales", locale)
+			}
+			if _, ok := seen[locale]; ok {
+				continue
+			}
+			seen[locale] = struct{}{}
+			locales = append(locales, locale)
+		}
 	}
 
-	// Detect format.
-	format, err := formats.FormatForFile(cfg.SourcePath)
+	bundles, err := prepareBundles(cfg.EffectiveBundles())
 	if err != nil {
-		return nil, fmt.Errorf("detecting format: %w", err)
+		return nil, err
 	}
-
-	// Load source.
-	sourceData, err := os.ReadFile(cfg.SourcePath)
-	if err != nil {
-		return nil, fmt.Errorf("reading source %s: %w", cfg.SourcePath, err)
-	}
-	sourceKeys, err := format.Parse(sourceData)
-	if err != nil {
-		return nil, fmt.Errorf("parsing source: %w", err)
-	}
-
-	// Load translation memory.
 	memory, err := tm.Load(cfg.TMPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading TM: %w", err)
 	}
-
-	// Process locales with concurrency limit.
-	sem := make(chan struct{}, concurrency)
-	var mu sync.Mutex
-	var results []Result
-
-	var wg sync.WaitGroup
-	for _, locale := range locales {
-		wg.Add(1)
-		go func(locale string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			result := translateLocale(ctx, cfg, format, provider, memory, sourceKeys, sourceData, locale, batchSize, opts.DryRun)
-			mu.Lock()
-			results = append(results, result)
-			mu.Unlock()
-		}(locale)
+	manifest, err := state.Load(cfg.ManifestPath)
+	if err != nil {
+		return nil, err
 	}
-	wg.Wait()
 
+	jobCount := len(bundles) * len(locales)
+	outputs := make([]jobOutput, jobCount)
+	jobs := make(chan job)
+	workerCount := concurrency
+	if workerCount > jobCount {
+		workerCount = jobCount
+	}
+
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
+	for i := 0; i < workerCount; i++ {
+		go func() {
+			defer workers.Done()
+			for current := range jobs {
+				outputs[current.index] = translateLocale(ctx, cfg, current.bundle, provider, memory, manifest, current.locale, batchSize, opts)
+			}
+		}()
+	}
+
+	next := 0
+enqueue:
+	for _, bundle := range bundles {
+		for _, locale := range locales {
+			select {
+			case jobs <- job{index: next, bundle: bundle, locale: locale}:
+				next++
+			case <-ctx.Done():
+				break enqueue
+			}
+		}
+	}
+	close(jobs)
+	workers.Wait()
+
+	results := make([]Result, 0, next)
+	for i := 0; i < next; i++ {
+		results = append(results, outputs[i].result)
+		if !opts.DryRun {
+			for _, update := range outputs[i].updates {
+				manifest.Set(update)
+			}
+		}
+	}
+	if ctx.Err() != nil {
+		return results, ctx.Err()
+	}
+
+	if !opts.DryRun && hasUpdates(outputs[:next]) {
+		if err := manifest.Save(cfg.ManifestPath); err != nil {
+			return results, err
+		}
+	}
+
+	failed := 0
+	for _, result := range results {
+		if len(result.Errors) > 0 {
+			failed++
+		}
+	}
+	if failed > 0 {
+		return results, &RunError{Failed: failed}
+	}
 	return results, nil
+}
+
+func prepareBundles(bundles []config.Bundle) ([]preparedBundle, error) {
+	prepared := make([]preparedBundle, 0, len(bundles))
+	for _, bundle := range bundles {
+		var format formats.Format
+		var err error
+		if bundle.Format != "" {
+			format, err = formats.FormatByName(bundle.Format)
+		} else {
+			format, err = formats.FormatForFile(bundle.Source)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("bundle %q format: %w", bundle.ID, err)
+		}
+		data, err := os.ReadFile(bundle.Source)
+		if err != nil {
+			return nil, fmt.Errorf("reading bundle %q source %s: %w", bundle.ID, bundle.Source, err)
+		}
+		keys, err := format.Parse(data)
+		if err != nil {
+			return nil, fmt.Errorf("parsing bundle %q source: %w", bundle.ID, err)
+		}
+		prepared = append(prepared, preparedBundle{bundle: bundle, format: format, sourceKeys: keys, sourceData: data})
+	}
+	return prepared, nil
 }
 
 func translateLocale(
 	ctx context.Context,
 	cfg *config.Config,
-	format formats.Format,
+	bundle preparedBundle,
 	provider llm.Provider,
 	memory *tm.TM,
-	sourceKeys map[string]string,
-	sourceData []byte,
+	manifest *state.Manifest,
 	locale string,
 	batchSize int,
-	dryRun bool,
-) Result {
-	result := Result{Locale: locale}
-	sourceDir := filepath.Dir(cfg.SourcePath)
-	ext := filepath.Ext(cfg.SourcePath)
-	targetPath := filepath.Join(sourceDir, locale+ext)
+	opts Options,
+) jobOutput {
+	result := Result{Bundle: bundle.bundle.ID, Locale: locale, KeysTotal: len(bundle.sourceKeys)}
+	targetPath, err := bundle.bundle.TargetPath(locale)
+	if err != nil {
+		result.Errors = append(result.Errors, err.Error())
+		return jobOutput{result: result}
+	}
+	result.TargetPath = targetPath
 
-	// Load existing target translations.
+	terms, err := glossary.Load(cfg.GlossaryDir, locale)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("glossary: %v", err))
+		return jobOutput{result: result}
+	}
+	guide, err := styleguide.Load(cfg.StyleGuidesDir, locale)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("style guide: %v", err))
+		return jobOutput{result: result}
+	}
+	prompt := llm.BuildSystemPrompt(cfg.SourceLocale, locale, guide, terms)
+	if bundle.format.Name() == "markdown" {
+		prompt = llm.BuildDocumentPrompt(cfg.SourceLocale, locale, guide, terms)
+	}
+	policyHash, err := state.HashValue(struct {
+		Version      int    `json:"version"`
+		SourceLocale string `json:"source_locale"`
+		TargetLocale string `json:"target_locale"`
+		Format       string `json:"format"`
+		Provider     string `json:"provider"`
+		Model        string `json:"model"`
+		Prompt       string `json:"prompt"`
+	}{promptPolicyVersion, cfg.SourceLocale, locale, bundle.format.Name(), cfg.LLM.Provider, cfg.LLM.Model, prompt})
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("hashing translation policy: %v", err))
+		return jobOutput{result: result}
+	}
+
 	targetKeys := make(map[string]string)
 	var targetData []byte
-	if data, err := os.ReadFile(targetPath); err == nil {
+	targetExists := false
+	data, err := os.ReadFile(targetPath)
+	switch {
+	case err == nil:
+		targetExists = true
 		targetData = data
-		if parsed, err := format.Parse(data); err == nil {
-			targetKeys = parsed
+		targetKeys, err = bundle.format.Parse(data)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("parsing target %s: %v", targetPath, err))
+			return jobOutput{result: result}
+		}
+	case os.IsNotExist(err):
+	case err != nil:
+		result.Errors = append(result.Errors, fmt.Sprintf("reading target %s: %v", targetPath, err))
+		return jobOutput{result: result}
+	}
+
+	keys := sortedKeys(bundle.sourceKeys)
+	plans := make([]plannedEntry, 0, len(keys))
+	for _, key := range keys {
+		sourceValue := bundle.sourceKeys[key]
+		sourceHash := state.SourceHash(bundle.format.Name(), sourceValue)
+		targetValue, exists := targetKeys[key]
+		recorded, recordedOK := manifest.Get(bundle.bundle.ID, key, locale)
+		entryState := classify(exists, targetValue, sourceHash, policyHash, recorded, recordedOK)
+		plans = append(plans, plannedEntry{key: key, source: sourceValue, sourceHash: sourceHash, state: entryState})
+		result.addState(entryState)
+	}
+	if opts.AdoptExisting {
+		for _, plan := range plans {
+			if !plan.state.adoptable() {
+				continue
+			}
+			if err := validateTranslationValue(plan.key, plan.source, targetKeys[plan.key]); err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("cannot adopt %q: %v", plan.key, err))
+			}
+		}
+		if len(result.Errors) > 0 {
+			return jobOutput{result: result}
 		}
 	}
 
-	// Find missing keys.
-	var missing []llm.Entry
-	cached := make(map[string]string)
-	for key, sourceVal := range sourceKeys {
-		if _, exists := targetKeys[key]; exists {
-			continue
+	candidates := make([]plannedEntry, 0)
+	for _, plan := range plans {
+		if plan.state.missing || (!plan.state.manualEdit && (plan.state.sourceStale || (plan.state.policyStale && opts.RefreshPolicy))) {
+			candidates = append(candidates, plan)
 		}
-		result.KeysTotal++
+	}
+	result.Batches = batchCount(len(candidates), batchSize)
+	if opts.DryRun {
+		result.KeysSkipped = len(candidates)
+		return jobOutput{result: result}
+	}
+	if opts.AdoptExisting {
+		result.KeysSkipped = len(candidates)
+		candidates = nil
+		result.Batches = 0
+	}
+	if len(candidates) > 0 && provider == nil {
+		result.Errors = append(result.Errors, "translation provider is required")
+		return jobOutput{result: result}
+	}
 
-		// Check TM.
-		hash := tm.HashSource(sourceVal)
-		if translation, ok := memory.Lookup(locale, key, hash); ok {
-			cached[key] = translation
+	staged := cloneMap(targetKeys)
+	origins := make(map[string]translationOrigin)
+	toTranslate := make([]plannedEntry, 0, len(candidates))
+	for _, plan := range candidates {
+		if record, ok := memory.Lookup(locale, bundle.bundle.ID, plan.key, plan.sourceHash, policyHash); ok {
+			staged[plan.key] = record.Target
+			origins[plan.key] = translationOrigin{kind: "tm", provider: record.Provider, model: record.Model}
 			result.KeysCached++
 			continue
 		}
-
-		missing = append(missing, llm.Entry{Key: key, Value: sourceVal})
+		toTranslate = append(toTranslate, plan)
 	}
+	result.Batches = batchCount(len(toTranslate), batchSize)
 
-	result.KeysTotal += result.KeysCached
-	result.Batches = (len(missing) + batchSize - 1) / batchSize
-	if batchSize == 0 {
-		result.Batches = 0
-	}
-
-	fmt.Fprintf(os.Stderr, "[%s] %d missing, %d cached, %d to translate in %d batches\n",
-		locale, len(missing)+result.KeysCached, result.KeysCached, len(missing), result.Batches)
-
-	if dryRun {
-		result.KeysSkipped = len(missing)
-		return result
-	}
-
-	// Load glossary and style guide for this locale.
-	terms, _ := glossary.Load(cfg.GlossaryDir, locale)
-	guide, _ := styleguide.Load(cfg.StyleGuidesDir, locale)
-	systemPrompt := llm.BuildSystemPrompt(cfg.SourceLocale, locale, guide, terms)
-
-	// Translate batches.
-	var tmRecords []tm.Record
-	for i := 0; i < len(missing); i += batchSize {
+	var records []tm.Record
+	for i := 0; i < len(toTranslate); i += batchSize {
 		end := i + batchSize
-		if end > len(missing) {
-			end = len(missing)
+		if end > len(toTranslate) {
+			end = len(toTranslate)
 		}
-		batch := missing[i:end]
+		batchPlans := toTranslate[i:end]
+		entries := make([]llm.Entry, len(batchPlans))
+		for j, plan := range batchPlans {
+			entries[j] = llm.Entry{Key: plan.key, Value: plan.source}
+		}
 
-		resp, err := provider.Translate(ctx, llm.TranslateRequest{
+		response, err := provider.Translate(ctx, llm.TranslateRequest{
 			SourceLocale: cfg.SourceLocale,
 			TargetLocale: locale,
-			Entries:      batch,
-			SystemPrompt: systemPrompt,
+			Entries:      entries,
+			SystemPrompt: prompt,
 		})
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("batch %d: %v", i/batchSize+1, err))
-			continue
+			return jobOutput{result: result}
+		}
+		if response == nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("batch %d: provider returned no response", i/batchSize+1))
+			return jobOutput{result: result}
+		}
+		if err := validateBatch(entries, response.Translations); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("batch %d: %v", i/batchSize+1, err))
+			return jobOutput{result: result}
 		}
 
-		result.TokensIn += resp.Usage.InputTokens
-		result.TokensOut += resp.Usage.OutputTokens
+		result.TokensIn += response.Usage.InputTokens
+		result.TokensOut += response.Usage.OutputTokens
+		for _, plan := range batchPlans {
+			translation := response.Translations[plan.key]
+			staged[plan.key] = translation
+			origins[plan.key] = translationOrigin{kind: "provider", provider: provider.Name(), model: cfg.LLM.Model}
+			result.KeysTranslated++
+			records = append(records, tm.Record{
+				Bundle:     bundle.bundle.ID,
+				Key:        plan.key,
+				Source:     plan.source,
+				Target:     translation,
+				Locale:     locale,
+				Hash:       plan.sourceHash,
+				PolicyHash: policyHash,
+				Provider:   provider.Name(),
+				Model:      cfg.LLM.Model,
+				Timestamp:  time.Now().UTC(),
+			})
+		}
+	}
 
-		for _, entry := range batch {
-			if translation, ok := resp.Translations[entry.Key]; ok {
-				targetKeys[entry.Key] = translation
-				result.KeysTranslated++
-
-				tmRecords = append(tmRecords, tm.Record{
-					Key:       entry.Key,
-					Source:    entry.Value,
-					Target:    translation,
-					Locale:    locale,
-					Hash:      tm.HashSource(entry.Value),
-					Timestamp: time.Now(),
-				})
+	changed := len(candidates) > 0
+	if changed {
+		serializationBaseline := targetData
+		if !targetExists {
+			serializationBaseline = bundle.sourceData
+		}
+		output, err := bundle.format.Serialize(staged, serializationBaseline)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("serializing target %s: %v", targetPath, err))
+			return jobOutput{result: result}
+		}
+		output = appendOneNewline(output)
+		parsed, err := bundle.format.Parse(output)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("validating staged target %s: %v", targetPath, err))
+			return jobOutput{result: result}
+		}
+		for _, plan := range candidates {
+			if parsed[plan.key] != staged[plan.key] {
+				result.Errors = append(result.Errors, fmt.Sprintf("validating staged target %s: key %q changed during serialization", targetPath, plan.key))
+				return jobOutput{result: result}
 			}
 		}
+		if err := state.WriteFileAtomic(targetPath, output, 0o644); err != nil {
+			result.Errors = append(result.Errors, err.Error())
+			return jobOutput{result: result}
+		}
+		targetExists = true
 	}
 
-	// Apply cached translations.
-	for key, val := range cached {
-		targetKeys[key] = val
-	}
-
-	// Write updated target file.
-	output, err := format.Serialize(targetKeys, targetData)
-	if err != nil {
-		result.Errors = append(result.Errors, fmt.Sprintf("serialize: %v", err))
-		return result
-	}
-
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-		result.Errors = append(result.Errors, fmt.Sprintf("mkdir: %v", err))
-		return result
-	}
-	if err := os.WriteFile(targetPath, append(output, '\n'), 0o644); err != nil {
-		result.Errors = append(result.Errors, fmt.Sprintf("write: %v", err))
-		return result
-	}
-
-	// Update TM.
-	if len(tmRecords) > 0 {
-		if err := memory.AddBatch(tmRecords); err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("tm update: %v", err))
+	if len(records) > 0 {
+		if err := memory.AddBatch(records); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("TM update: %v", err))
 		}
 	}
 
-	return result
+	now := time.Now().UTC()
+	updates := make([]state.Entry, 0)
+	if targetExists {
+		for _, plan := range plans {
+			targetValue, exists := staged[plan.key]
+			if !exists {
+				continue
+			}
+			origin := origins[plan.key]
+			if plan.state.adoptable() && opts.AdoptExisting {
+				origin = translationOrigin{kind: "adopted"}
+			}
+			if origin.kind == "" {
+				continue
+			}
+			updates = append(updates, state.Entry{
+				Bundle:     bundle.bundle.ID,
+				Key:        plan.key,
+				Locale:     locale,
+				SourceHash: plan.sourceHash,
+				PolicyHash: policyHash,
+				TargetHash: state.TargetHash(targetValue),
+				Origin:     origin.kind,
+				Provider:   origin.provider,
+				Model:      origin.model,
+				UpdatedAt:  now,
+			})
+		}
+	}
+	return jobOutput{result: result, updates: updates}
+}
+
+type entryState struct {
+	missing     bool
+	sourceStale bool
+	policyStale bool
+	manualEdit  bool
+	untracked   bool
+	current     bool
+}
+
+func (s entryState) adoptable() bool {
+	return !s.missing && !s.current && (s.untracked || s.manualEdit || s.sourceStale || s.policyStale)
+}
+
+type translationOrigin struct {
+	kind     string
+	provider string
+	model    string
+}
+
+type plannedEntry struct {
+	key        string
+	source     string
+	sourceHash string
+	state      entryState
+}
+
+func classify(targetExists bool, target string, sourceHash string, policyHash string, recorded state.Entry, recordedOK bool) entryState {
+	if !targetExists {
+		return entryState{missing: true}
+	}
+	if !recordedOK {
+		return entryState{untracked: true}
+	}
+	classified := entryState{
+		manualEdit:  recorded.TargetHash != state.TargetHash(target),
+		sourceStale: recorded.SourceHash != sourceHash,
+		policyStale: recorded.PolicyHash != policyHash,
+	}
+	classified.current = !classified.manualEdit && !classified.sourceStale && !classified.policyStale
+	return classified
+}
+
+func (r *Result) addState(state entryState) {
+	if state.missing {
+		r.KeysMissing++
+	}
+	if state.sourceStale {
+		r.KeysSourceStale++
+	}
+	if state.policyStale {
+		r.KeysPolicyStale++
+	}
+	if state.manualEdit {
+		r.KeysManualEdit++
+	}
+	if state.untracked {
+		r.KeysUntracked++
+	}
+	if state.current {
+		r.KeysCurrent++
+	}
+}
+
+func validateBatch(entries []llm.Entry, translations map[string]string) error {
+	expected := make(map[string]struct{}, len(entries))
+	var missing []string
+	for _, entry := range entries {
+		expected[entry.Key] = struct{}{}
+		if _, ok := translations[entry.Key]; !ok {
+			missing = append(missing, entry.Key)
+		}
+	}
+	var extra []string
+	for key := range translations {
+		if _, ok := expected[key]; !ok {
+			extra = append(extra, key)
+		}
+	}
+	if len(missing) == 0 && len(extra) == 0 {
+		for _, entry := range entries {
+			if err := validateTranslationValue(entry.Key, entry.Value, translations[entry.Key]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	sort.Strings(missing)
+	sort.Strings(extra)
+	return fmt.Errorf("provider response key set mismatch (missing: %v, extra: %v)", missing, extra)
+}
+
+func sortedKeys(entries map[string]string) []string {
+	keys := make([]string, 0, len(entries))
+	for key := range entries {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func cloneMap(input map[string]string) map[string]string {
+	output := make(map[string]string, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
+}
+
+func batchCount(entries, batchSize int) int {
+	if entries == 0 || batchSize <= 0 {
+		return 0
+	}
+	return (entries + batchSize - 1) / batchSize
+}
+
+func appendOneNewline(data []byte) []byte {
+	return append([]byte(strings.TrimRight(string(data), "\n")), '\n')
+}
+
+func hasUpdates(outputs []jobOutput) bool {
+	for _, output := range outputs {
+		if len(output.updates) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // FormatResults returns a human-readable summary of translation results.
 func FormatResults(results []Result, elapsed time.Duration) string {
-	var totalTranslated, totalCached, totalIn, totalOut int
+	var translated, cached, missing, sourceStale, policyStale, manual, untracked, tokensIn, tokensOut int
 	var hasErrors bool
+	for _, result := range results {
+		translated += result.KeysTranslated
+		cached += result.KeysCached
+		missing += result.KeysMissing
+		sourceStale += result.KeysSourceStale
+		policyStale += result.KeysPolicyStale
+		manual += result.KeysManualEdit
+		untracked += result.KeysUntracked
+		tokensIn += result.TokensIn
+		tokensOut += result.TokensOut
+		hasErrors = hasErrors || len(result.Errors) > 0
+	}
 
-	for _, r := range results {
-		totalTranslated += r.KeysTranslated
-		totalCached += r.KeysCached
-		totalIn += r.TokensIn
-		totalOut += r.TokensOut
-		if len(r.Errors) > 0 {
-			hasErrors = true
+	summary := fmt.Sprintf("\nTranslated %d keys across %d bundle/locale jobs (%d from cache) in %s\n", translated, len(results), cached, elapsed.Round(time.Millisecond))
+	summary += fmt.Sprintf("Observed before run: %d missing, %d source-stale, %d policy-stale, %d manual edits, %d untracked\n", missing, sourceStale, policyStale, manual, untracked)
+	if tokensIn > 0 || tokensOut > 0 {
+		summary += fmt.Sprintf("Tokens: %d input, %d output\n", tokensIn, tokensOut)
+	}
+	if missing+sourceStale+policyStale+manual+untracked > 0 {
+		summary += "\nPre-run observations:\n"
+		for _, result := range results {
+			if result.KeysMissing+result.KeysSourceStale+result.KeysPolicyStale+result.KeysManualEdit+result.KeysUntracked == 0 {
+				continue
+			}
+			summary += fmt.Sprintf("  [%s/%s] %s: %d missing, %d source-stale, %d policy-stale, %d manual edits, %d untracked\n",
+				result.Bundle, result.Locale, result.TargetPath, result.KeysMissing, result.KeysSourceStale, result.KeysPolicyStale, result.KeysManualEdit, result.KeysUntracked)
 		}
 	}
-
-	summary := fmt.Sprintf("\nTranslated %d keys across %d locales (%d from cache) in %s\n",
-		totalTranslated, len(results), totalCached, elapsed.Round(time.Millisecond))
-	if totalIn > 0 || totalOut > 0 {
-		summary += fmt.Sprintf("Tokens: %d input, %d output\n", totalIn, totalOut)
-	}
-
 	if hasErrors {
 		summary += "\nErrors:\n"
-		for _, r := range results {
-			for _, e := range r.Errors {
-				summary += fmt.Sprintf("  [%s] %s\n", r.Locale, e)
+		for _, result := range results {
+			for _, runErr := range result.Errors {
+				summary += fmt.Sprintf("  [%s/%s] %s\n", result.Bundle, result.Locale, runErr)
 			}
 		}
 	}

@@ -3,7 +3,6 @@ package validate
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -14,10 +13,13 @@ import (
 
 // Report holds validation results for a single locale.
 type Report struct {
+	Bundle     string     `json:"bundle"`
 	Locale     string     `json:"locale"`
+	TargetPath string     `json:"target_path"`
 	Missing    []string   `json:"missing"`
 	Extra      []string   `json:"extra"`
 	Mismatches []Mismatch `json:"mismatches,omitempty"`
+	Errors     []string   `json:"errors,omitempty"`
 	Coverage   float64    `json:"coverage"`
 }
 
@@ -33,35 +35,44 @@ var interpolationRe = regexp.MustCompile(`(?:\{\{(\w+)\}\}|\{(\w+)\}|%\{(\w+)\})
 
 // Validate checks all target locales against the source locale.
 func Validate(cfg *config.Config) ([]Report, error) {
-	sourceDir := filepath.Dir(cfg.SourcePath)
-	sourceFile := filepath.Base(cfg.SourcePath)
-
-	format, err := formats.FormatForFile(sourceFile)
-	if err != nil {
-		return nil, fmt.Errorf("detecting format: %w", err)
+	if err := cfg.ValidateProject(); err != nil {
+		return nil, err
 	}
-
-	sourceData, err := os.ReadFile(cfg.SourcePath)
-	if err != nil {
-		return nil, fmt.Errorf("reading source %s: %w", cfg.SourcePath, err)
-	}
-
-	sourceKeys, err := format.Parse(sourceData)
-	if err != nil {
-		return nil, fmt.Errorf("parsing source: %w", err)
-	}
-
 	var reports []Report
-	for _, locale := range cfg.TargetLocales {
-		targetPath := filepath.Join(sourceDir, locale+filepath.Ext(sourceFile))
-		report := validateLocale(locale, sourceKeys, targetPath, format)
-		reports = append(reports, report)
+	for _, bundle := range cfg.EffectiveBundles() {
+		format, err := formatForBundle(bundle)
+		if err != nil {
+			return nil, fmt.Errorf("bundle %q format: %w", bundle.ID, err)
+		}
+		sourceData, err := os.ReadFile(bundle.Source)
+		if err != nil {
+			return nil, fmt.Errorf("reading bundle %q source %s: %w", bundle.ID, bundle.Source, err)
+		}
+		sourceKeys, err := format.Parse(sourceData)
+		if err != nil {
+			return nil, fmt.Errorf("parsing bundle %q source: %w", bundle.ID, err)
+		}
+		for _, locale := range cfg.TargetLocales {
+			targetPath, err := bundle.TargetPath(locale)
+			if err != nil {
+				return nil, err
+			}
+			report := validateLocale(bundle.ID, locale, sourceKeys, targetPath, format)
+			reports = append(reports, report)
+		}
 	}
 	return reports, nil
 }
 
-func validateLocale(locale string, sourceKeys map[string]string, targetPath string, format formats.Format) Report {
-	report := Report{Locale: locale}
+func formatForBundle(bundle config.Bundle) (formats.Format, error) {
+	if bundle.Format != "" {
+		return formats.FormatByName(bundle.Format)
+	}
+	return formats.FormatForFile(bundle.Source)
+}
+
+func validateLocale(bundle, locale string, sourceKeys map[string]string, targetPath string, format formats.Format) Report {
+	report := Report{Bundle: bundle, Locale: locale, TargetPath: targetPath}
 
 	targetData, err := os.ReadFile(targetPath)
 	if err != nil {
@@ -77,6 +88,7 @@ func validateLocale(locale string, sourceKeys map[string]string, targetPath stri
 	targetKeys, err := format.Parse(targetData)
 	if err != nil {
 		report.Missing = allKeys(sourceKeys)
+		report.Errors = append(report.Errors, fmt.Sprintf("parsing target: %v", err))
 		report.Coverage = 0
 		return report
 	}
@@ -99,14 +111,8 @@ func validateLocale(locale string, sourceKeys map[string]string, targetPath stri
 		if !ok {
 			continue
 		}
-		srcVars := extractVars(sourceVal)
-		tgtVars := extractVars(targetVal)
-		if !sameVars(srcVars, tgtVars) {
-			report.Mismatches = append(report.Mismatches, Mismatch{
-				Key:        key,
-				SourceVars: srcVars,
-				TargetVars: tgtVars,
-			})
+		if mismatch := InterpolationMismatch(key, sourceVal, targetVal); mismatch != nil {
+			report.Mismatches = append(report.Mismatches, *mismatch)
 		}
 	}
 
@@ -118,6 +124,26 @@ func validateLocale(locale string, sourceKeys map[string]string, targetPath stri
 		report.Coverage = float64(total-len(report.Missing)) / float64(total) * 100
 	}
 	return report
+}
+
+// InterpolationMismatch compares the placeholder multiset in two values.
+func InterpolationMismatch(key, source, target string) *Mismatch {
+	sourceVars := extractVars(source)
+	targetVars := extractVars(target)
+	if sameVars(sourceVars, targetVars) {
+		return nil
+	}
+	return &Mismatch{Key: key, SourceVars: sourceVars, TargetVars: targetVars}
+}
+
+// HasFailures reports whether validation should return a non-zero exit status.
+func HasFailures(reports []Report) bool {
+	for _, report := range reports {
+		if len(report.Missing) > 0 || len(report.Mismatches) > 0 || len(report.Errors) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func extractVars(s string) []string {
@@ -162,38 +188,39 @@ func FormatHuman(reports []Report) string {
 
 	for _, r := range reports {
 		status := "OK"
-		if len(r.Missing) > 0 || len(r.Mismatches) > 0 {
+		if len(r.Missing) > 0 || len(r.Mismatches) > 0 || len(r.Errors) > 0 {
 			status = "FAIL"
 			hasErrors = true
 		}
 
-		fmt.Fprintf(&b, "[%s] %s — %.1f%% coverage", r.Locale, status, r.Coverage)
+		_, _ = fmt.Fprintf(&b, "[%s/%s] %s — %.1f%% coverage", r.Bundle, r.Locale, status, r.Coverage)
 
 		if len(r.Missing) > 0 {
-			fmt.Fprintf(&b, ", %d missing", len(r.Missing))
+			_, _ = fmt.Fprintf(&b, ", %d missing", len(r.Missing))
 		}
 		if len(r.Extra) > 0 {
-			fmt.Fprintf(&b, ", %d extra", len(r.Extra))
+			_, _ = fmt.Fprintf(&b, ", %d extra", len(r.Extra))
 		}
 		if len(r.Mismatches) > 0 {
-			fmt.Fprintf(&b, ", %d interpolation mismatches", len(r.Mismatches))
+			_, _ = fmt.Fprintf(&b, ", %d interpolation mismatches", len(r.Mismatches))
+		}
+		if len(r.Errors) > 0 {
+			_, _ = fmt.Fprintf(&b, ", %d errors", len(r.Errors))
 		}
 		b.WriteString("\n")
 
 		// Show details for failures.
 		if len(r.Missing) > 0 && len(r.Missing) <= 20 {
 			for _, key := range r.Missing {
-				fmt.Fprintf(&b, "  - missing: %s\n", key)
+				_, _ = fmt.Fprintf(&b, "  - missing: %s\n", key)
 			}
 		}
 		for _, m := range r.Mismatches {
-			fmt.Fprintf(
-				&b,
-				"  - mismatch: %s (source: %v, target: %v)\n",
-				m.Key,
-				m.SourceVars,
-				m.TargetVars,
-			)
+			_, _ = fmt.Fprintf(&b, "  - mismatch: %s (source: %v, target: %v)\n",
+				m.Key, m.SourceVars, m.TargetVars)
+		}
+		for _, reportErr := range r.Errors {
+			_, _ = fmt.Fprintf(&b, "  - error: %s\n", reportErr)
 		}
 	}
 

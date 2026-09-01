@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/Tom-R-Main/Internationalizer/internal/config"
 	"github.com/Tom-R-Main/Internationalizer/internal/detect"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -34,7 +35,7 @@ func newDetectCmd() *cobra.Command {
 			}
 			suggested["llm"] = map[string]string{
 				"provider":    "gemini",
-				"model":       "gemini-3.1-pro-preview",
+				"model":       config.DefaultGeminiModel,
 				"api_key_env": "GOOGLE_AI_STUDIO_API_KEY",
 			}
 

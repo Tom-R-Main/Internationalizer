@@ -46,6 +46,28 @@ func TestJSONParse(t *testing.T) {
 	}
 }
 
+func TestJSONParseExcludesNonStringLeaves(t *testing.T) {
+	f := &JSONFormat{}
+	entries, err := f.Parse([]byte(`{"label":"Save","enabled":true,"limit":3,"empty":null}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries["label"] != "Save" {
+		t.Fatalf("entries = %#v, want only the translatable string", entries)
+	}
+	output, err := f.Serialize(map[string]string{"label": "Enregistrer"}, []byte(`{"label":"Save","enabled":true,"limit":3,"empty":null}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(output, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["enabled"] != true || decoded["limit"] != float64(3) || decoded["empty"] != nil {
+		t.Fatalf("non-string values changed: %#v", decoded)
+	}
+}
+
 func TestJSONSerializePreservesOrder(t *testing.T) {
 	original := `{
   "b": "B",
@@ -154,5 +176,53 @@ func TestJSONSerializeAddsMissingKeysToExistingFile(t *testing.T) {
 		if got := reparsed[key]; got != want {
 			t.Errorf("key %q: got %q, want %q", key, got, want)
 		}
+	}
+}
+
+func TestJSONSerializeWithSourceStructurePreservesArrays(t *testing.T) {
+	f := &JSONFormat{}
+	output, err := f.Serialize(map[string]string{
+		"steps.0.label": "Premier",
+		"steps.1.label": "Deuxième",
+	}, []byte(`{"steps":[{"label":"First"},{"label":"Second"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Steps []struct {
+			Label string `json:"label"`
+		} `json:"steps"`
+	}
+	if err := json.Unmarshal(output, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Steps) != 2 || decoded.Steps[1].Label != "Deuxième" {
+		t.Fatalf("decoded = %#v", decoded)
+	}
+}
+
+func TestJSONSerializePreservesNumericObjectKeys(t *testing.T) {
+	f := &JSONFormat{}
+	original := []byte(`{"http":{"404":"Not found"}}`)
+	output, err := f.Serialize(map[string]string{"http.404": "Introuvable"}, original)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var decoded struct {
+		HTTP map[string]string `json:"http"`
+	}
+	if err := json.Unmarshal(output, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if got := decoded.HTTP["404"]; got != "Introuvable" {
+		t.Fatalf("http.404 = %q, want %q; output = %s", got, "Introuvable", output)
+	}
+}
+
+func TestJSONSerializeRejectsAmbiguousNumericPathWithoutStructure(t *testing.T) {
+	f := &JSONFormat{}
+	if _, err := f.Serialize(map[string]string{"steps.0": "Premier"}, nil); err == nil {
+		t.Fatal("Serialize guessed an array shape without source structure")
 	}
 }

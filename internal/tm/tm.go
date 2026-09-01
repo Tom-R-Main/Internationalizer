@@ -14,12 +14,16 @@ import (
 
 // Record is a single translation memory entry.
 type Record struct {
-	Key       string    `json:"key"`
-	Source    string    `json:"source"`
-	Target    string    `json:"target"`
-	Locale    string    `json:"locale"`
-	Hash      string    `json:"hash"`
-	Timestamp time.Time `json:"timestamp"`
+	Bundle     string    `json:"bundle,omitempty"`
+	Key        string    `json:"key"`
+	Source     string    `json:"source"`
+	Target     string    `json:"target"`
+	Locale     string    `json:"locale"`
+	Hash       string    `json:"hash"`
+	PolicyHash string    `json:"policy_hash,omitempty"`
+	Provider   string    `json:"provider,omitempty"`
+	Model      string    `json:"model,omitempty"`
+	Timestamp  time.Time `json:"timestamp"`
 }
 
 // Stats holds translation memory statistics.
@@ -33,7 +37,7 @@ type Stats struct {
 type TM struct {
 	path  string
 	mu    sync.RWMutex
-	index map[string]map[string]Record // locale -> key -> record
+	index map[string]map[string]Record // locale -> bundle/key identity -> record
 }
 
 // Load reads a JSONL translation memory file into memory.
@@ -54,37 +58,40 @@ func Load(path string) (*TM, error) {
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	lineNumber := 0
 	for scanner.Scan() {
+		lineNumber++
 		line := scanner.Bytes()
 		if len(line) == 0 {
 			continue
 		}
 		var rec Record
 		if err := json.Unmarshal(line, &rec); err != nil {
-			continue // skip malformed lines
+			return nil, fmt.Errorf("parsing TM %s line %d: %w", path, lineNumber, err)
 		}
 		if t.index[rec.Locale] == nil {
 			t.index[rec.Locale] = make(map[string]Record)
 		}
-		t.index[rec.Locale][rec.Key] = rec
+		t.index[rec.Locale][recordKey(rec.Bundle, rec.Key)] = rec
 	}
 	return t, scanner.Err()
 }
 
-// Lookup checks if a cached translation exists for the given key and source hash.
-func (t *TM) Lookup(locale, key, sourceHash string) (string, bool) {
+// Lookup checks for a translation produced from the same source and policy.
+// Legacy records without a policy hash intentionally miss.
+func (t *TM) Lookup(locale, bundle, key, sourceHash, policyHash string) (Record, bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
 	localeMap, ok := t.index[locale]
 	if !ok {
-		return "", false
+		return Record{}, false
 	}
-	rec, ok := localeMap[key]
-	if !ok || rec.Hash != sourceHash {
-		return "", false
+	rec, ok := localeMap[recordKey(bundle, key)]
+	if !ok || rec.Hash != sourceHash || rec.PolicyHash != policyHash {
+		return Record{}, false
 	}
-	return rec.Target, true
+	return rec, true
 }
 
 // Add appends a record to the JSONL file and updates the in-memory index.
@@ -109,11 +116,17 @@ func (t *TM) Add(rec Record) error {
 	if _, err := f.Write(append(line, '\n')); err != nil {
 		return err
 	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
 
 	if t.index[rec.Locale] == nil {
 		t.index[rec.Locale] = make(map[string]Record)
 	}
-	t.index[rec.Locale][rec.Key] = rec
+	t.index[rec.Locale][recordKey(rec.Bundle, rec.Key)] = rec
 	return nil
 }
 
@@ -149,12 +162,23 @@ func (t *TM) AddBatch(records []Record) error {
 			return err
 		}
 
+	}
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	for _, rec := range records {
 		if t.index[rec.Locale] == nil {
 			t.index[rec.Locale] = make(map[string]Record)
 		}
-		t.index[rec.Locale][rec.Key] = rec
+		t.index[rec.Locale][recordKey(rec.Bundle, rec.Key)] = rec
 	}
-	return w.Flush()
+	return nil
 }
 
 // Stats returns translation memory statistics.
@@ -231,11 +255,21 @@ func (t *TM) Compact() error {
 			}
 		}
 	}
-	return w.Flush()
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 // HashSource returns the SHA-256 hash of a source string.
 func HashSource(source string) string {
 	h := sha256.Sum256([]byte(source))
 	return fmt.Sprintf("%x", h)
+}
+
+func recordKey(bundle, key string) string {
+	return bundle + "\x00" + key
 }

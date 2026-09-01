@@ -24,19 +24,24 @@ func newTranslateCmd() *cobra.Command {
 			}
 
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			adoptExisting, _ := cmd.Flags().GetBool("adopt-existing")
+			refreshPolicy, _ := cmd.Flags().GetBool("refresh-policy")
 			locales, _ := cmd.Flags().GetStringSlice("locale")
 			batchSize, _ := cmd.Flags().GetInt("batch-size")
 			concurrency, _ := cmd.Flags().GetInt("concurrency")
 
-			// For dry-run, skip API key validation.
-			if !dryRun {
-				if err := cfg.Validate(); err != nil {
+			if err := cfg.ValidateProject(); err != nil {
+				return err
+			}
+			// Local inspection and explicit adoption do not need provider credentials.
+			if !dryRun && !adoptExisting {
+				if err := cfg.ValidateCredentials(); err != nil {
 					return err
 				}
 			}
 
 			var provider llm.Provider
-			if !dryRun {
+			if !dryRun && !adoptExisting {
 				provider, err = llm.NewProvider(cfg.LLM, cfg.APIKey())
 				if err != nil {
 					return err
@@ -45,25 +50,31 @@ func newTranslateCmd() *cobra.Command {
 
 			start := time.Now()
 			results, err := translate.Run(context.Background(), cfg, provider, translate.Options{
-				DryRun:      dryRun,
-				Locales:     locales,
-				BatchSize:   batchSize,
-				Concurrency: concurrency,
+				DryRun:        dryRun,
+				AdoptExisting: adoptExisting,
+				RefreshPolicy: refreshPolicy,
+				Locales:       locales,
+				BatchSize:     batchSize,
+				Concurrency:   concurrency,
 			})
-			if err != nil {
-				return err
+			if len(results) > 0 {
+				if _, outputErr := fmt.Fprint(cmd.OutOrStdout(), translate.FormatResults(results, time.Since(start))); outputErr != nil {
+					return outputErr
+				}
 			}
-
-			fmt.Print(translate.FormatResults(results, time.Since(start)))
-			return nil
+			return err
 		},
 	}
 
 	cmd.Flags().StringP("config", "c", "", "path to config file (default: .internationalizer.yml)")
 	cmd.Flags().StringSliceP("locale", "l", nil, "target locale(s) to translate (default: all)")
 	cmd.Flags().Bool("dry-run", false, "show what would be translated without calling the LLM")
+	cmd.Flags().Bool("adopt-existing", false, "record existing translations as the provenance baseline without calling the LLM")
+	cmd.Flags().Bool("refresh-policy", false, "retranslate entries made stale by prompt, style-guide, glossary, provider, or model changes")
 	cmd.Flags().Int("batch-size", 0, "keys per LLM call (overrides config)")
 	cmd.Flags().Int("concurrency", 0, "parallel LLM calls (overrides config)")
+	cmd.MarkFlagsMutuallyExclusive("dry-run", "adopt-existing")
+	cmd.MarkFlagsMutuallyExclusive("adopt-existing", "refresh-policy")
 
 	return cmd
 }

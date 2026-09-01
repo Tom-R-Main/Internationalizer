@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -39,8 +39,8 @@ func flatten(prefix string, val interface{}, out map[string]string) {
 			p := fmt.Sprintf("%s.%d", prefix, i)
 			flatten(p, child, out)
 		}
-	default:
-		out[prefix] = fmt.Sprintf("%v", v)
+	case string:
+		out[prefix] = v
 	}
 }
 
@@ -62,9 +62,15 @@ func serializePreservingOrder(entries map[string]string, original []byte) ([]byt
 	if err := dec.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("json parse original: %w", err)
 	}
-	replaceLeaves("", raw, entries)
+	replaced := make(map[string]struct{}, len(entries))
+	replaceLeaves("", raw, entries, replaced)
 	for key, value := range entries {
-		setPath(&raw, strings.Split(key, "."), value)
+		if _, ok := replaced[key]; ok {
+			continue
+		}
+		if err := setPath(&raw, strings.Split(key, "."), value); err != nil {
+			return nil, fmt.Errorf("json set path %q: %w", key, err)
+		}
 	}
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -77,7 +83,7 @@ func serializePreservingOrder(entries map[string]string, original []byte) ([]byt
 	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
-func replaceLeaves(prefix string, val interface{}, entries map[string]string) {
+func replaceLeaves(prefix string, val interface{}, entries map[string]string, replaced map[string]struct{}) {
 	switch v := val.(type) {
 	case map[string]interface{}:
 		for key, child := range v {
@@ -87,10 +93,11 @@ func replaceLeaves(prefix string, val interface{}, entries map[string]string) {
 			}
 			switch child.(type) {
 			case map[string]interface{}, []interface{}:
-				replaceLeaves(p, child, entries)
+				replaceLeaves(p, child, entries, replaced)
 			default:
 				if replacement, ok := entries[p]; ok {
 					v[key] = replacement
+					replaced[p] = struct{}{}
 				}
 			}
 		}
@@ -99,42 +106,41 @@ func replaceLeaves(prefix string, val interface{}, entries map[string]string) {
 			p := fmt.Sprintf("%s.%d", prefix, i)
 			switch child.(type) {
 			case map[string]interface{}, []interface{}:
-				replaceLeaves(p, child, entries)
+				replaceLeaves(p, child, entries, replaced)
 			default:
 				if replacement, ok := entries[p]; ok {
 					v[i] = replacement
+					replaced[p] = struct{}{}
 				}
 			}
 		}
 	}
 }
 
-func setPath(target *interface{}, parts []string, value string) {
+func setPath(target *interface{}, parts []string, value string) error {
 	if len(parts) == 0 {
 		*target = value
-		return
+		return nil
 	}
 
 	if idx, err := strconv.Atoi(parts[0]); err == nil {
-		var arr []interface{}
-		switch current := (*target).(type) {
-		case nil:
-			arr = make([]interface{}, idx+1)
-		case []interface{}:
-			arr = current
+		if arr, ok := (*target).([]interface{}); ok {
 			if len(arr) <= idx {
 				expanded := make([]interface{}, idx+1)
 				copy(expanded, arr)
 				arr = expanded
 			}
-		default:
-			arr = make([]interface{}, idx+1)
+			child := arr[idx]
+			if err := setPath(&child, parts[1:], value); err != nil {
+				return err
+			}
+			arr[idx] = child
+			*target = arr
+			return nil
 		}
-		child := arr[idx]
-		setPath(&child, parts[1:], value)
-		arr[idx] = child
-		*target = arr
-		return
+		if *target == nil {
+			return fmt.Errorf("numeric segment %q has no source structure", parts[0])
+		}
 	}
 
 	var obj map[string]interface{}
@@ -144,16 +150,19 @@ func setPath(target *interface{}, parts []string, value string) {
 	case map[string]interface{}:
 		obj = current
 	default:
-		obj = make(map[string]interface{})
+		return fmt.Errorf("object segment %q conflicts with existing array or scalar", parts[0])
 	}
 	child := obj[parts[0]]
-	setPath(&child, parts[1:], value)
+	if err := setPath(&child, parts[1:], value); err != nil {
+		return err
+	}
 	obj[parts[0]] = child
 	*target = obj
+	return nil
 }
 
 func serializeFromScratch(entries map[string]string) ([]byte, error) {
-	root := make(map[string]interface{})
+	var root interface{} = make(map[string]interface{})
 	// Sort keys for deterministic output.
 	keys := make([]string, 0, len(entries))
 	for k := range entries {
@@ -162,17 +171,8 @@ func serializeFromScratch(entries map[string]string) ([]byte, error) {
 	sort.Strings(keys)
 
 	for _, key := range keys {
-		parts := strings.Split(key, ".")
-		current := root
-		for i, part := range parts {
-			if i == len(parts)-1 {
-				current[part] = entries[key]
-			} else {
-				if _, ok := current[part]; !ok {
-					current[part] = make(map[string]interface{})
-				}
-				current = current[part].(map[string]interface{})
-			}
+		if err := setPath(&root, strings.Split(key, "."), entries[key]); err != nil {
+			return nil, fmt.Errorf("json set path %q: %w", key, err)
 		}
 	}
 

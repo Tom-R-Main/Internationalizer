@@ -101,7 +101,7 @@ func FormatForPrompt(terms []Term) string {
 			}
 			notes += "whole word"
 		}
-		fmt.Fprintf(&b, "| %s | %s | %s |\n", t.Source, t.Target, notes)
+		_, _ = fmt.Fprintf(&b, "| %s | %s | %s |\n", t.Source, t.Target, notes)
 	}
 	return b.String()
 }

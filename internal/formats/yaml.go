@@ -42,7 +42,9 @@ func flattenYAMLNode(prefix string, node *yaml.Node, out map[string]string) {
 			flattenYAMLNode(p, child, out)
 		}
 	case yaml.ScalarNode:
-		out[prefix] = node.Value
+		if node.Tag == "!!str" {
+			out[prefix] = node.Value
+		}
 	}
 }
 
@@ -81,6 +83,7 @@ func replaceYAMLLeaves(prefix string, node *yaml.Node, entries map[string]string
 			if val.Kind == yaml.ScalarNode {
 				if replacement, ok := entries[p]; ok {
 					val.Value = replacement
+					val.Tag = "!!str"
 				}
 			} else {
 				replaceYAMLLeaves(p, val, entries)
@@ -92,6 +95,7 @@ func replaceYAMLLeaves(prefix string, node *yaml.Node, entries map[string]string
 			if child.Kind == yaml.ScalarNode {
 				if replacement, ok := entries[p]; ok {
 					child.Value = replacement
+					child.Tag = "!!str"
 				}
 			} else {
 				replaceYAMLLeaves(p, child, entries)
