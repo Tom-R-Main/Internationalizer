@@ -294,6 +294,34 @@ func TestRunReportsPolicyStaleUntilRefreshIsExplicit(t *testing.T) {
 	}
 }
 
+func TestRunTreatsReasoningEffortAsTranslationPolicy(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "en.json")
+	targetPath := filepath.Join(dir, "fr.json")
+	if err := os.WriteFile(sourcePath, []byte(`{"a":"Save"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetPath, []byte(`{"a":"Enregistrer"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig(dir, sourcePath)
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.Model = "gpt-5.6-luna"
+	cfg.LLM.ReasoningEffort = "low"
+	if _, err := Run(context.Background(), cfg, nil, Options{AdoptExisting: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg.LLM.ReasoningEffort = "max"
+	results, err := Run(context.Background(), cfg, nil, Options{DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].KeysPolicyStale != 1 || results[0].KeysCurrent != 0 {
+		t.Fatalf("reasoning policy change was not reported as stale: %#v", results[0])
+	}
+}
+
 func testConfig(dir, sourcePath string) *config.Config {
 	return &config.Config{
 		SourceLocale:   "en",

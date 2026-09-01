@@ -42,24 +42,21 @@ func ParseTranslationResponse(text string) (map[string]string, error) {
 }
 
 func tryParseJSON(text string) (map[string]string, error) {
-	// Try flat map first.
-	var flat map[string]string
-	if err := json.Unmarshal([]byte(text), &flat); err == nil {
-		return flat, nil
-	}
-
-	// Try nested map and flatten.
+	// Decode through interface values so null and other non-string leaves cannot
+	// silently become empty strings during unmarshalling.
 	var nested map[string]interface{}
 	if err := json.Unmarshal([]byte(text), &nested); err != nil {
 		return nil, err
 	}
 
 	result := make(map[string]string)
-	flattenResponse("", nested, result)
+	if err := flattenResponse("", nested, result); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
-func flattenResponse(prefix string, val map[string]interface{}, out map[string]string) {
+func flattenResponse(prefix string, val map[string]interface{}, out map[string]string) error {
 	for key, v := range val {
 		p := key
 		if prefix != "" {
@@ -69,9 +66,12 @@ func flattenResponse(prefix string, val map[string]interface{}, out map[string]s
 		case string:
 			out[p] = child
 		case map[string]interface{}:
-			flattenResponse(p, child, out)
+			if err := flattenResponse(p, child, out); err != nil {
+				return err
+			}
 		default:
-			out[p] = fmt.Sprintf("%v", v)
+			return fmt.Errorf("translation %q must be a string, got %T", p, v)
 		}
 	}
+	return nil
 }

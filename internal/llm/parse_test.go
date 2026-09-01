@@ -55,3 +55,19 @@ func TestParseTranslationResponse_Invalid(t *testing.T) {
 		t.Error("expected error for non-JSON input")
 	}
 }
+
+func TestParseTranslationResponse_RejectsNonStringLeaves(t *testing.T) {
+	tests := map[string]string{
+		"boolean": `{"label":true}`,
+		"number":  `{"label":42}`,
+		"array":   `{"label":["Save"]}`,
+		"null":    `{"label":null}`,
+	}
+	for name, input := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseTranslationResponse(input); err == nil {
+				t.Fatalf("ParseTranslationResponse(%s) accepted a non-string translation", input)
+			}
+		})
+	}
+}

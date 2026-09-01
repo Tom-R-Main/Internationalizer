@@ -52,7 +52,7 @@ func NewProvider(cfg config.LLM, apiKey string) (Provider, error) {
 		if baseURL == "" {
 			baseURL = "https://api.openai.com"
 		}
-		return NewOpenAI(apiKey, cfg.Model, baseURL, cfg.ReasoningEffort), nil
+		return NewOpenAI(apiKey, cfg.Model, baseURL, EffectiveReasoningEffort(cfg)), nil
 	case "gemini":
 		return NewGemini(apiKey, cfg.Model), nil
 	case "openrouter":
@@ -60,6 +60,25 @@ func NewProvider(cfg config.LLM, apiKey string) (Provider, error) {
 	default:
 		return nil, fmt.Errorf("unknown LLM provider: %s (supported: anthropic, openai, gemini, openrouter)", cfg.Provider)
 	}
+}
+
+// EffectiveReasoningEffort returns the reasoning setting that reaches the
+// provider request. Compatible endpoints and non-GPT-5 models ignore it.
+func EffectiveReasoningEffort(cfg config.LLM) string {
+	if cfg.Provider != "openai" || !strings.HasPrefix(cfg.Model, "gpt-5") {
+		return ""
+	}
+	baseURL := cfg.BaseURL
+	if baseURL == "" {
+		baseURL = "https://api.openai.com"
+	}
+	if !strings.Contains(strings.TrimRight(baseURL, "/"), "api.openai.com") {
+		return ""
+	}
+	if cfg.ReasoningEffort == "" && strings.HasPrefix(cfg.Model, "gpt-5.6") {
+		return config.DefaultOpenAIReasoning
+	}
+	return cfg.ReasoningEffort
 }
 
 // BuildSystemPrompt constructs the system prompt for translation,

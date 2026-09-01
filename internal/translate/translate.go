@@ -268,8 +268,9 @@ func translateLocale(
 		Format       string `json:"format"`
 		Provider     string `json:"provider"`
 		Model        string `json:"model"`
+		Reasoning    string `json:"reasoning_effort"`
 		Prompt       string `json:"prompt"`
-	}{promptPolicyVersion, cfg.SourceLocale, locale, bundle.format.Name(), cfg.LLM.Provider, cfg.LLM.Model, prompt})
+	}{promptPolicyVersion, cfg.SourceLocale, locale, bundle.format.Name(), cfg.LLM.Provider, cfg.LLM.Model, llm.EffectiveReasoningEffort(cfg.LLM), prompt})
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("hashing translation policy: %v", err))
 		return jobOutput{result: result}
