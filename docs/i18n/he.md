@@ -82,7 +82,7 @@ source_path: locales/en.json
 
 llm:
   provider: gemini
-  model: gemini-3.1-pro-preview
+  model: gemini-3.7-flash
   api_key_env: GOOGLE_AI_STUDIO_API_KEY
 ```
 
@@ -184,11 +184,11 @@ llm:
   provider: gemini
 
   # Model name defaults by provider:
-  #   anthropic:  claude-sonnet-4-6
-  #   openai:     gpt-5.4
-  #   gemini:     gemini-3.1-pro-preview
-  #   openrouter: google/gemini-3-flash-preview
-  model: gemini-3.1-pro-preview
+  #   anthropic:  claude-opus-5
+  #   openai:     gpt-5.6-luna
+  #   gemini:     gemini-3.7-flash
+  #   openrouter: deepseek/deepseek-v4-pro-0813
+  model: gemini-3.7-flash
 
   # Environment variable containing the API key
   api_key_env: GOOGLE_AI_STUDIO_API_KEY

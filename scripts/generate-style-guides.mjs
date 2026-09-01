@@ -12,7 +12,7 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
-const MODEL = process.env.GEMINI_MODEL || "gemini-3.1-pro-preview";
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.7-flash";
 const API_KEY = process.env.GOOGLE_AI_STUDIO_API_KEY;
 if (!API_KEY) {
   console.error("GOOGLE_AI_STUDIO_API_KEY is required");

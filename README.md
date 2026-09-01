@@ -75,11 +75,15 @@ go build -o internationalizer ./cmd/internationalizer
 # .internationalizer.yml
 source_locale: en
 target_locales: [fr, de, es, ja]
-source_path: locales/en.json
+bundles:
+  - id: app
+    source: locales/en.json
+    target: locales/{locale}.json
+    format: json
 
 llm:
   provider: gemini
-  model: gemini-3.1-pro-preview
+  model: gemini-3.7-flash
   api_key_env: GOOGLE_AI_STUDIO_API_KEY
 ```
 
@@ -117,9 +121,19 @@ Find missing keys and translate them via an LLM.
 internationalizer translate                    # translate all locales
 internationalizer translate -l fr              # translate French only
 internationalizer translate --dry-run          # preview without API calls
+internationalizer translate --adopt-existing   # baseline existing translations without API calls
+internationalizer translate --refresh-policy   # refresh prompt/style/model-stale entries
 internationalizer translate --batch-size 20    # smaller batches
 internationalizer translate --concurrency 2    # fewer parallel calls
 ```
+
+Translation state independently reports missing, source-stale, policy-stale,
+current, and manually edited conditions, so a manual edit cannot conceal a
+source or policy change. Policy-stale values are reported but only retranslated
+with `--refresh-policy`. Manually edited values are never overwritten
+automatically. Use `--adopt-existing` when introducing the manifest to reviewed
+translations or when explicitly accepting a reviewed manual edit as the new
+baseline.
 
 ### `validate`
 
@@ -172,8 +186,21 @@ source_locale: en
 # Languages to translate into (required)
 target_locales: [fr, de, es, ja, zh-CN, ar]
 
-# Path to the source locale file (required)
-source_path: locales/en.json
+# One or more source-to-target mappings (required).
+# {locale} is replaced with each configured target locale.
+bundles:
+  - id: app
+    source: locales/en.json
+    target: locales/{locale}.json
+    format: json
+  - id: docs
+    source: README.md
+    target: docs/i18n/{locale}.md
+    format: markdown
+
+# Backward compatibility: source_path still maps targets to sibling files
+# such as locales/fr.json. Prefer bundles for new projects.
+# source_path: locales/en.json
 
 # LLM provider settings
 llm:
@@ -181,11 +208,11 @@ llm:
   provider: gemini
 
   # Model name defaults by provider:
-  #   anthropic:  claude-sonnet-4-6
-  #   openai:     gpt-5.5
-  #   gemini:     gemini-3.1-pro-preview
-  #   openrouter: google/gemini-3-flash-preview
-  model: gemini-3.1-pro-preview
+  #   anthropic:  claude-opus-5
+  #   openai:     gpt-5.6-luna (reasoning effort defaults to max)
+  #   gemini:     gemini-3.7-flash
+  #   openrouter: deepseek/deepseek-v4-pro-0813
+  model: gemini-3.7-flash
 
   # Environment variable containing the API key
   api_key_env: GOOGLE_AI_STUDIO_API_KEY
@@ -193,8 +220,9 @@ llm:
   # Base URL for OpenAI-compatible endpoints (optional)
   # base_url: https://api.openai.com
 
-  # OpenAI GPT-5-series Responses API reasoning effort (optional)
-  # reasoning_effort: low
+  # OpenAI GPT-5-series Responses API reasoning effort
+  # (default: max for the OpenAI provider)
+  reasoning_effort: max
 
 # Keys per LLM call (default: 40)
 batch_size: 40
@@ -210,6 +238,10 @@ glossary_dir: glossary
 
 # Path to translation memory file (default: .internationalizer/tm.jsonl)
 tm_path: .internationalizer/tm.jsonl
+
+# Versioned source, policy, target, and provenance state
+# (default: .internationalizer.lock; commit this file)
+manifest_path: .internationalizer.lock
 ```
 
 ## Style Guides

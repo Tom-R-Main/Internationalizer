@@ -33,11 +33,15 @@ target_locales:
   - fi
   - da
   - ro
-source_path: README.md
+bundles:
+  - id: readme
+    source: README.md
+    target: docs/i18n/{locale}.md
+    format: markdown
 
 llm:
   provider: gemini
-  model: gemini-3.1-pro-preview
+  model: gemini-3.7-flash
   api_key_env: GOOGLE_AI_STUDIO_API_KEY
 
 batch_size: 40

@@ -3,11 +3,15 @@
 
 source_locale: en
 target_locales: [fr, de, es, ja]
-source_path: locales/en.json
+bundles:
+  - id: app
+    source: locales/en.json
+    target: locales/{locale}.json
+    format: json
 
 llm:
   provider: gemini                 # recommended via AI Studio; or "anthropic", "openai", "openrouter"
-  model: gemini-3.1-pro-preview    # or "claude-sonnet-4-6" / "gpt-5.4" / "google/gemini-3-flash-preview"
+  model: gemini-3.7-flash          # or "claude-opus-5" / "gpt-5.6-luna" / "deepseek/deepseek-v4-pro-0813"
   api_key_env: GOOGLE_AI_STUDIO_API_KEY   # env var containing your API key
   # base_url: https://api.openai.com  # for OpenAI-compatible endpoints
 
@@ -17,3 +21,4 @@ concurrency: 4        # parallel locale translations
 style_guides_dir: style-guides   # Markdown style guides per locale
 glossary_dir: glossary           # JSON glossary files per locale
 tm_path: .internationalizer/tm.jsonl  # translation memory cache
+manifest_path: .internationalizer.lock  # versioned, reviewable translation state
