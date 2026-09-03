@@ -1,6 +1,10 @@
 package glossary
 
 import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -87,6 +91,107 @@ func TestLoadEmpty(t *testing.T) {
 	}
 	if terms != nil {
 		t.Errorf("expected nil for missing glossary, got %v", terms)
+	}
+}
+
+func TestLoadOldGlossaryWithoutValidationMetadata(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fr.json")
+	if err := os.WriteFile(path, []byte(`[{"source":"Dashboard","target":"Tableau de bord","ignore_case":true}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	terms, err := Load(dir, "fr")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(terms) != 1 {
+		t.Fatalf("Load returned %d terms, want 1", len(terms))
+	}
+	if terms[0].Enforcement != "" || terms[0].Variants != nil {
+		t.Fatalf("old glossary metadata = %#v, want zero values", terms[0])
+	}
+}
+
+func TestSaveAndLoadVariantsAndEnforcement(t *testing.T) {
+	dir := t.TempDir()
+	want := []Term{{
+		Source:      "Sign in",
+		Target:      "Connexion",
+		Variants:    []string{"Se connecter"},
+		Enforcement: EnforcementWarning,
+	}}
+	if err := Save(dir, "fr", want); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := Load(dir, "fr")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Load = %#v, want %#v", got, want)
+	}
+}
+
+func TestLoadRejectsInvalidEnforcement(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fr.json")
+	if err := os.WriteFile(path, []byte(`[{"source":"Save","target":"Enregistrer","enforcement":"block"}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(dir, "fr")
+	if err == nil {
+		t.Fatal("Load accepted invalid enforcement")
+	}
+	if !strings.Contains(err.Error(), `invalid enforcement "block"`) {
+		t.Fatalf("Load error = %q, want invalid enforcement detail", err)
+	}
+}
+
+func TestSaveRejectsInvalidEnforcementBeforeWriting(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "glossary")
+	err := Save(dir, "fr", []Term{{Source: "Save", Target: "Enregistrer", Enforcement: "block"}})
+	if err == nil {
+		t.Fatal("Save accepted invalid enforcement")
+	}
+	if _, statErr := os.Stat(dir); !os.IsNotExist(statErr) {
+		t.Fatalf("Save created glossary directory for invalid terms: %v", statErr)
+	}
+}
+
+func TestApprovedTargetsIncludesPrimaryAndVariants(t *testing.T) {
+	term := Term{Target: "Connexion", Variants: []string{"Se connecter", "Identification"}}
+	want := []string{"Connexion", "Se connecter", "Identification"}
+	if got := ApprovedTargets(term); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ApprovedTargets = %#v, want %#v", got, want)
+	}
+}
+
+func TestSourceIdenticalExemptRequiresCompleteExplicitMatch(t *testing.T) {
+	terms := []Term{
+		{Source: "API", Target: "API"},
+		{Source: "GitHub", Target: "GitHub", IgnoreCase: true},
+	}
+	tests := []struct {
+		name   string
+		source string
+		target string
+		want   bool
+	}{
+		{name: "exact", source: "API", target: "API", want: true},
+		{name: "ignore case", source: "github", target: "GITHUB", want: true},
+		{name: "partial", source: "API access", target: "API access", want: false},
+		{name: "not source identical", source: "API", target: "Apis", want: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := SourceIdenticalExempt(terms, test.source, test.target); got != test.want {
+				t.Fatalf("SourceIdenticalExempt(%q, %q) = %t, want %t", test.source, test.target, got, test.want)
+			}
+		})
 	}
 }
 

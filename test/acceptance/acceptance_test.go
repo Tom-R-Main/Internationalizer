@@ -168,6 +168,40 @@ func TestAdoptionLifecycleIsExplicitIdempotentAndReadOnlyWhenPlanned(t *testing.
 	}
 }
 
+func TestStrictValidationDistinguishesSeededContentFromCurrentState(t *testing.T) {
+	projectDir := t.TempDir()
+	mustWriteFile(t, filepath.Join(projectDir, "locales", "en.json"), "{\n  \"brand\": \"Lens\",\n  \"seeded\": \"Save\"\n}\n")
+	mustWriteFile(t, filepath.Join(projectDir, "locales", "fr.json"), "{\n  \"brand\": \"Lens\",\n  \"seeded\": \"Save\"\n}\n")
+	mustWriteFile(t, filepath.Join(projectDir, "glossary", "fr.json"), "[{\"source\":\"Lens\",\"target\":\"Lens\",\"whole_word\":true}]\n")
+	mustWriteFile(t, filepath.Join(projectDir, ".internationalizer.yml"), `source_locale: en
+target_locales: [fr]
+source_path: locales/en.json
+glossary_dir: glossary
+manifest_path: .internationalizer.lock
+`)
+
+	legacy := runCLI(t, projectDir, nil, "validate", "--json")
+	legacy.requireSuccess(t)
+
+	strict := runCLI(t, projectDir, nil, "validate", "--strict", "--json")
+	if strict.exitCode != 1 {
+		t.Fatalf("strict exit code = %d, want 1; stderr=%s", strict.exitCode, strict.stderr)
+	}
+	for _, want := range []string{`"structural_coverage": 100`, `"translated_coverage": 50`, `"code": "source_identical"`} {
+		if !strings.Contains(strict.stdout, want) {
+			t.Fatalf("strict report does not contain %q:\n%s", want, strict.stdout)
+		}
+	}
+
+	adoption := runCLI(t, projectDir, nil, "translate", "--adopt-existing")
+	adoption.requireSuccess(t)
+	requireState := runCLI(t, projectDir, nil, "validate", "--require-state", "--json")
+	requireState.requireSuccess(t)
+	if strings.Contains(requireState.stdout, `"code": "untracked"`) {
+		t.Fatalf("adopted state remained untracked:\n%s", requireState.stdout)
+	}
+}
+
 func TestOpenAITranslationExercisesResponsesContractAndPreservesSourceShape(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

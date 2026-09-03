@@ -13,12 +13,12 @@ import (
 	"github.com/Tom-R-Main/Internationalizer/internal/formats"
 	"github.com/Tom-R-Main/Internationalizer/internal/glossary"
 	"github.com/Tom-R-Main/Internationalizer/internal/llm"
+	"github.com/Tom-R-Main/Internationalizer/internal/policy"
 	"github.com/Tom-R-Main/Internationalizer/internal/state"
 	"github.com/Tom-R-Main/Internationalizer/internal/styleguide"
 	"github.com/Tom-R-Main/Internationalizer/internal/tm"
+	validation "github.com/Tom-R-Main/Internationalizer/internal/validate"
 )
-
-const promptPolicyVersion = 1
 
 // Options configures a translation run.
 type Options struct {
@@ -83,6 +83,10 @@ type jobOutput struct {
 
 // Run executes the translation pipeline.
 func Run(ctx context.Context, cfg *config.Config, provider llm.Provider, opts Options) ([]Result, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	effectiveConfig := *cfg
 	effectiveConfig.ApplyDefaults()
 	cfg = &effectiveConfig
@@ -246,8 +250,15 @@ func translateLocale(
 	batchSize int,
 	opts Options,
 ) jobOutput {
-	result := Result{Bundle: bundle.bundle.ID, Locale: locale, KeysTotal: len(bundle.sourceKeys)}
-	localeLLM := cfg.LLMForLocale(locale)
+	sourceKeys := bundle.sourceKeys
+	var optionalPluralKeys map[string]struct{}
+	if cfg.Validation.PluralStyle == "i18next-v4" {
+		sourceKeys, _, optionalPluralKeys = validation.ExpandI18nextV4Source(bundle.sourceKeys, cfg.SourceLocale, locale)
+		for key := range optionalPluralKeys {
+			delete(sourceKeys, key)
+		}
+	}
+	result := Result{Bundle: bundle.bundle.ID, Locale: locale, KeysTotal: len(sourceKeys)}
 	targetPath, err := bundle.bundle.TargetPath(locale)
 	if err != nil {
 		result.Errors = append(result.Errors, err.Error())
@@ -265,24 +276,14 @@ func translateLocale(
 		result.Errors = append(result.Errors, fmt.Sprintf("style guide: %v", err))
 		return jobOutput{result: result}
 	}
-	prompt := llm.BuildSystemPrompt(cfg.SourceLocale, locale, guide, terms)
-	if bundle.format.Name() == "markdown" {
-		prompt = llm.BuildDocumentPrompt(cfg.SourceLocale, locale, guide, terms)
-	}
-	policyHash, err := state.HashValue(struct {
-		Version      int    `json:"version"`
-		SourceLocale string `json:"source_locale"`
-		TargetLocale string `json:"target_locale"`
-		Format       string `json:"format"`
-		Provider     string `json:"provider"`
-		Model        string `json:"model"`
-		Reasoning    string `json:"reasoning_effort"`
-		Prompt       string `json:"prompt"`
-	}{promptPolicyVersion, cfg.SourceLocale, locale, bundle.format.Name(), localeLLM.Provider, localeLLM.Model, llm.EffectiveReasoningEffort(localeLLM), prompt})
+	translationPolicy, err := policy.Resolve(cfg, locale, bundle.format.Name(), guide, terms)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("hashing translation policy: %v", err))
 		return jobOutput{result: result}
 	}
+	localeLLM := translationPolicy.LLM
+	prompt := translationPolicy.Prompt
+	policyHash := translationPolicy.Hash
 
 	targetKeys := make(map[string]string)
 	var targetData []byte
@@ -303,10 +304,10 @@ func translateLocale(
 		return jobOutput{result: result}
 	}
 
-	keys := sortedKeys(bundle.sourceKeys)
+	keys := sortedKeys(sourceKeys)
 	plans := make([]plannedEntry, 0, len(keys))
 	for _, key := range keys {
-		sourceValue := bundle.sourceKeys[key]
+		sourceValue := sourceKeys[key]
 		sourceHash := state.SourceHash(bundle.format.Name(), sourceValue)
 		targetValue, exists := targetKeys[key]
 		recorded, recordedOK := manifest.Get(bundle.bundle.ID, key, locale)
@@ -421,6 +422,18 @@ func translateLocale(
 		serializationBaseline := targetData
 		if !targetExists {
 			serializationBaseline = bundle.sourceData
+			if len(optionalPluralKeys) > 0 {
+				remover, ok := bundle.format.(formats.EntryRemover)
+				if !ok {
+					result.Errors = append(result.Errors, fmt.Sprintf("format %q cannot omit source-only plural forms", bundle.format.Name()))
+					return jobOutput{result: result}
+				}
+				serializationBaseline, err = remover.RemoveEntries(serializationBaseline, optionalPluralKeys)
+				if err != nil {
+					result.Errors = append(result.Errors, fmt.Sprintf("preparing target structure %s: %v", targetPath, err))
+					return jobOutput{result: result}
+				}
+			}
 		}
 		output, err := bundle.format.Serialize(staged, serializationBaseline)
 		if err != nil {

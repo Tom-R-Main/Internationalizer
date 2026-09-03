@@ -129,6 +129,58 @@ llm:
 	}
 }
 
+func TestLoadResolvesValidationFromYAML(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".internationalizer.yml")
+	data := []byte(`source_locale: en
+target_locales: [fr]
+source_path: locales/en.json
+validation:
+  plural_style: i18next-v4
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := cfg.Validation.PluralStyle, "i18next-v4"; got != want {
+		t.Fatalf("validation plural style = %q, want %q", got, want)
+	}
+}
+
+func TestValidateProjectAcceptsSupportedPluralStyles(t *testing.T) {
+	for _, pluralStyle := range []string{"", "i18next-v4"} {
+		t.Run(pluralStyle, func(t *testing.T) {
+			cfg := &Config{
+				TargetLocales: []string{"fr"},
+				SourcePath:    filepath.Join("locales", "en.json"),
+				Validation:    Validation{PluralStyle: pluralStyle},
+			}
+			if err := cfg.ValidateProject(); err != nil {
+				t.Fatalf("ValidateProject rejected plural style %q: %v", pluralStyle, err)
+			}
+		})
+	}
+}
+
+func TestValidateProjectRejectsUnknownPluralStyle(t *testing.T) {
+	cfg := &Config{
+		TargetLocales: []string{"fr"},
+		SourcePath:    filepath.Join("locales", "en.json"),
+		Validation:    Validation{PluralStyle: "gettext"},
+	}
+
+	err := cfg.ValidateProject()
+	if err == nil {
+		t.Fatal("ValidateProject accepted an unknown plural style")
+	}
+	if got, want := err.Error(), `unsupported validation.plural_style "gettext"`; got != want {
+		t.Fatalf("ValidateProject error = %q, want %q", got, want)
+	}
+}
+
 func TestEffectiveBundlesPreservesLegacySourcePathContract(t *testing.T) {
 	cfg := &Config{SourcePath: filepath.Join("locales", "en.json")}
 	bundles := cfg.EffectiveBundles()

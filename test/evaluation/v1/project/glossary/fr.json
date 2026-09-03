@@ -1,0 +1,12 @@
+[
+  {
+    "source": "Lens",
+    "target": "Lens",
+    "whole_word": true
+  },
+  {
+    "source": "Dashboard",
+    "target": "Tableau de bord",
+    "whole_word": true
+  }
+]

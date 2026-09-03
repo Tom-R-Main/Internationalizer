@@ -39,3 +39,6 @@ style_guides_dir: style-guides   # Markdown style guides per locale
 glossary_dir: glossary           # JSON glossary files per locale
 tm_path: .internationalizer/tm.jsonl  # translation memory cache
 manifest_path: .internationalizer.lock  # versioned, reviewable translation state
+
+validation:
+  plural_style: i18next-v4  # optional; generates and validates target-locale plural forms

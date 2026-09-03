@@ -137,13 +137,43 @@ baseline.
 
 ### `validate`
 
-Check all locale files for missing keys, extra keys, and interpolation mismatches.
+Check all locale files against their source bundles. Default validation checks
+structural coverage (the percentage of required target keys present), reports extra keys
+as warnings, and fails for missing keys or interpolation mismatches.
 
 ```bash
 internationalizer validate                     # human-readable output
 internationalizer validate --json              # machine-readable JSON
 internationalizer validate -q                  # exit code only
+internationalizer validate --strict             # enforce translation quality rules
+internationalizer validate --require-state      # require current manifest provenance
 ```
+
+`--strict` also reports translated coverage. A linguistic value identical to
+its source is untranslated unless the glossary explicitly contains an exact
+same-source, same-target entry for the complete value; `ignore_case` is honored,
+but a glossary term embedded in a longer value is not an exemption. Strict mode
+fails on extra keys, source-identical values, changed interpolation/HTML/code/
+Markdown-link structure, glossary violations, and configured plural forms.
+
+`--require-state` verifies each target against `.internationalizer.lock`. It
+fails when a key is untracked, or when its recorded source, translation policy,
+or target hash is stale. It can be combined with `--strict`.
+
+Human and JSON reports use stable finding codes:
+
+| Code | Meaning |
+| --- | --- |
+| `missing_key` / `extra_key` | Source and target key sets differ |
+| `blank_translation` | A non-empty source has an empty strict-mode target |
+| `source_identical` | A strict-mode linguistic value remains untranslated |
+| `protected_structure_mismatch` | Interpolation, HTML, code, or link structure changed |
+| `glossary_violation` | No approved target term or variant was found |
+| `plural_form_missing` | A configured locale plural form is absent |
+| `untracked` | No manifest record exists for the target |
+| `source_stale` | Source content changed after the recorded translation |
+| `policy_stale` | The generated prompt or model settings changed |
+| `target_modified` | Target content differs from the manifest record |
 
 ### `detect`
 
@@ -263,7 +293,17 @@ tm_path: .internationalizer/tm.jsonl
 # Versioned source, policy, target, and provenance state
 # (default: .internationalizer.lock; commit this file)
 manifest_path: .internationalizer.lock
+
+# Optional translation and strict-validation rules
+validation:
+  plural_style: i18next-v4 # generate and validate target-locale plural forms
 ```
+
+With `i18next-v4`, recognized source plural families are expanded during
+translation to the target locale's CLDR categories. A target-only category uses
+the source family's `_other` value as its translation template. Strict
+validation requires those target categories; source-only categories are
+optional for target locales that do not use them.
 
 ## Style Guides
 
@@ -296,13 +336,20 @@ Glossary files are JSON arrays stored in `{glossary_dir}/{locale}.json`:
   {
     "source": "Dashboard",
     "target": "Tableau de bord",
+    "variants": ["Panneau de contrôle"],
+    "enforcement": "error",
     "ignore_case": false,
     "whole_word": true
   }
 ]
 ```
 
-Terms are injected into the LLM prompt as a terminology table, ensuring consistent translation of key terms across your application.
+`variants` lists other approved target forms. `enforcement` may be `error`,
+`warning`, or omitted for the default error behavior. Terms are injected into
+the LLM prompt as a terminology table, ensuring consistent translation across
+your application. An exact entry such as `{"source":"API","target":"API"}`
+also exempts that complete source-identical value from strict untranslated-value
+findings; it does not exempt a longer value merely containing `API`.
 
 ## Translation Memory
 

@@ -18,6 +18,12 @@ type Format interface {
 	Serialize(entries map[string]string, original []byte) ([]byte, error)
 }
 
+// EntryRemover is implemented by structured formats that can remove selected
+// string leaves while preserving the rest of the original document shape.
+type EntryRemover interface {
+	RemoveEntries(original []byte, keys map[string]struct{}) ([]byte, error)
+}
+
 var registry = []Format{
 	&JSONFormat{},
 	&YAMLFormat{},

@@ -1,0 +1,14 @@
+{
+  "missing": "Missing",
+  "seeded": "Save",
+  "brand": "Lens",
+  "placeholder": "Hello, {{name}}",
+  "markup": "Click <strong>here</strong>",
+  "term": "Open the Dashboard",
+  "items_one": "{{count}} item",
+  "items_other": "{{count}} items",
+  "state": {
+    "open": "Open",
+    "closed": "Closed"
+  }
+}

@@ -1,0 +1,11 @@
+source_locale: en
+target_locales: [fr]
+bundles:
+  - id: evaluation
+    source: test/evaluation/v1/project/locales/en.json
+    target: test/evaluation/v1/project/locales/{locale}.json
+    format: json
+glossary_dir: test/evaluation/v1/project/glossary
+manifest_path: test/evaluation/v1/project/manifest.json
+validation:
+  plural_style: i18next-v4
