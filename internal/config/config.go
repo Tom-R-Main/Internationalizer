@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
+	"sort"
 	"strings"
 
+	localeid "github.com/Tom-R-Main/Internationalizer/internal/locale"
 	"gopkg.in/yaml.v3"
 )
 
@@ -133,7 +134,7 @@ func (c *Config) LLMForLocale(locale string) LLM {
 	global.LocaleOverrides = nil
 	applyLLMDefaults(&global)
 
-	override, ok := c.LLM.LocaleOverrides[locale]
+	override, ok := localeOverride(c.LLM.LocaleOverrides, locale)
 	if !ok {
 		return global
 	}
@@ -165,6 +166,29 @@ func (c *Config) LLMForLocale(locale string) LLM {
 	return effective
 }
 
+// ConfiguredTargetLocale returns the configured spelling of a target locale
+// that is canonically equivalent to requested.
+func (c *Config) ConfiguredTargetLocale(requested string) (string, bool) {
+	canonical, err := localeid.Canonical(requested)
+	if err != nil {
+		return "", false
+	}
+	for _, candidate := range c.TargetLocales {
+		candidateCanonical, candidateErr := localeid.Canonical(candidate)
+		if candidateErr == nil && candidateCanonical == canonical {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+// HasLLMOverrideForLocale reports whether a canonical-equivalent locale has
+// explicit provider settings.
+func (c *Config) HasLLMOverrideForLocale(locale string) bool {
+	_, ok := localeOverride(c.LLM.LocaleOverrides, locale)
+	return ok
+}
+
 func (c *Config) Validate() error {
 	if err := c.ValidateProject(); err != nil {
 		return err
@@ -177,24 +201,38 @@ func (c *Config) ValidateProject() error {
 	if c.Validation.PluralStyle != "" && c.Validation.PluralStyle != "i18next-v4" {
 		return fmt.Errorf("unsupported validation.plural_style %q", c.Validation.PluralStyle)
 	}
+	sourceLocale := c.SourceLocale
+	if sourceLocale == "" {
+		sourceLocale = "en"
+	}
+	if _, err := localeid.Canonical(sourceLocale); err != nil {
+		return fmt.Errorf("invalid source locale %q: %w", c.SourceLocale, err)
+	}
 	if len(c.TargetLocales) == 0 {
 		return fmt.Errorf("target_locales must not be empty")
 	}
 	localeSeen := make(map[string]struct{}, len(c.TargetLocales))
 	for _, locale := range c.TargetLocales {
-		if !validLocale.MatchString(locale) {
-			return fmt.Errorf("invalid target locale %q", locale)
+		canonical, err := localeid.Canonical(locale)
+		if err != nil {
+			return fmt.Errorf("invalid target locale %q: %w", locale, err)
 		}
-		if _, ok := localeSeen[locale]; ok {
+		if _, ok := localeSeen[canonical]; ok {
 			return fmt.Errorf("duplicate target locale %q", locale)
 		}
-		localeSeen[locale] = struct{}{}
+		localeSeen[canonical] = struct{}{}
 	}
+	overrideSeen := make(map[string]struct{}, len(c.LLM.LocaleOverrides))
 	for locale := range c.LLM.LocaleOverrides {
-		if !validLocale.MatchString(locale) {
-			return fmt.Errorf("invalid llm locale override %q", locale)
+		canonical, err := localeid.Canonical(locale)
+		if err != nil {
+			return fmt.Errorf("invalid llm locale override %q: %w", locale, err)
 		}
-		if _, ok := localeSeen[locale]; !ok {
+		if _, duplicate := overrideSeen[canonical]; duplicate {
+			return fmt.Errorf("duplicate llm locale override %q", locale)
+		}
+		overrideSeen[canonical] = struct{}{}
+		if _, ok := localeSeen[canonical]; !ok {
 			return fmt.Errorf("llm locale override %q is not in target_locales", locale)
 		}
 	}
@@ -276,8 +314,6 @@ func validateAPIKeyEnv(apiKeyEnv string, checked map[string]struct{}) error {
 	return nil
 }
 
-var validLocale = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
-
 // EffectiveBundles returns explicit bundles, or a backward-compatible bundle
 // derived from source_path and the historical sibling target convention.
 func (c *Config) EffectiveBundles() []Bundle {
@@ -298,13 +334,34 @@ func (c *Config) EffectiveBundles() []Bundle {
 
 // TargetPath resolves a bundle target for a validated locale.
 func (b Bundle) TargetPath(locale string) (string, error) {
-	if !validLocale.MatchString(locale) {
-		return "", fmt.Errorf("invalid target locale %q", locale)
+	if _, err := localeid.Canonical(locale); err != nil {
+		return "", fmt.Errorf("invalid target locale %q: %w", locale, err)
 	}
 	if !strings.Contains(b.Target, "{locale}") {
 		return "", fmt.Errorf("bundle %q target must contain {locale}", b.ID)
 	}
 	return filepath.Clean(strings.ReplaceAll(b.Target, "{locale}", locale)), nil
+}
+
+func localeOverride(overrides map[string]LLMOverride, requested string) (LLMOverride, bool) {
+	if override, ok := overrides[requested]; ok {
+		return override, true
+	}
+	canonical, err := localeid.Canonical(requested)
+	if err != nil {
+		return LLMOverride{}, false
+	}
+	keys := make([]string, 0, len(overrides))
+	for key := range overrides {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if candidate, candidateErr := localeid.Canonical(key); candidateErr == nil && candidate == canonical {
+			return overrides[key], true
+		}
+	}
+	return LLMOverride{}, false
 }
 
 // APIKey returns the resolved API key from the environment.

@@ -6,9 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Tom-R-Main/Internationalizer/internal/config"
 	"github.com/Tom-R-Main/Internationalizer/internal/llm"
+	"github.com/Tom-R-Main/Internationalizer/internal/policy"
+	"github.com/Tom-R-Main/Internationalizer/internal/state"
+	"github.com/Tom-R-Main/Internationalizer/internal/tm"
 	validation "github.com/Tom-R-Main/Internationalizer/internal/validate"
 )
 
@@ -51,6 +55,111 @@ func TestRunRejectsIncompleteProviderResponseWithoutWritingTarget(t *testing.T) 
 	}
 	if _, statErr := os.Stat(filepath.Join(dir, "fr.json")); !os.IsNotExist(statErr) {
 		t.Fatalf("target was written after incomplete response; stat error = %v", statErr)
+	}
+}
+
+func TestRunRejectsInvalidICUProviderResponseWithoutWritingTarget(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "en.json")
+	if err := os.WriteFile(sourcePath, []byte(`{"items":"{count, plural, one {One item} other {# items}}"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig(dir, sourcePath)
+	provider := &fakeProvider{response: &llm.TranslateResponse{Translations: map[string]string{
+		"items": "{count, plural, one {Un article} other {# articles}",
+	}}}
+
+	results, err := Run(context.Background(), cfg, provider, Options{})
+	if err == nil {
+		t.Fatal("Run returned nil error for malformed ICU provider output")
+	}
+	if len(results) != 1 || len(results[0].Errors) == 0 {
+		t.Fatalf("Run results = %#v, want one locale error", results)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "fr.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("target was written after malformed ICU output; stat error = %v", statErr)
+	}
+}
+
+func TestRunRejectsMalformedICUSourceWithoutCallingProvider(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "en.json")
+	if err := os.WriteFile(sourcePath, []byte(`{"items":"{count, plural, one {One}}"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig(dir, sourcePath)
+	provider := &fakeProvider{response: &llm.TranslateResponse{Translations: map[string]string{
+		"items": "{count, plural, one {Un} other {Autres}}",
+	}}}
+
+	results, err := Run(context.Background(), cfg, provider, Options{})
+	if err == nil {
+		t.Fatal("Run returned nil error for malformed ICU source")
+	}
+	if provider.calls != 0 {
+		t.Fatalf("provider called %d times for malformed ICU source", provider.calls)
+	}
+	if len(results) != 1 || len(results[0].Errors) == 0 {
+		t.Fatalf("Run results = %#v, want source error", results)
+	}
+}
+
+func TestRunDoesNotReuseStructurallyInvalidTMRecord(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "en.json")
+	source := "{count, plural, one {One item} other {# items}}"
+	if err := os.WriteFile(sourcePath, []byte(`{"items":"{count, plural, one {One item} other {# items}}"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig(dir, sourcePath)
+	resolved, err := policy.Resolve(cfg, "fr", "json", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memory, err := tm.Load(cfg.TMPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.Add(tm.Record{
+		Bundle:     "default",
+		Key:        "items",
+		Source:     source,
+		Target:     "{count, plural, one {Un article} other {# articles}",
+		Locale:     "fr",
+		Hash:       state.SourceHash("json", source),
+		PolicyHash: resolved.Hash,
+		Timestamp:  time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &fakeProvider{response: &llm.TranslateResponse{Translations: map[string]string{
+		"items": "{count, plural, one {Un article} other {# articles}}",
+	}}}
+
+	results, err := Run(context.Background(), cfg, provider, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].KeysCached != 0 || results[0].KeysTranslated != 1 || provider.calls != 1 {
+		t.Fatalf("Run results = %#v, provider calls = %d; want invalid TM bypass and fresh translation", results, provider.calls)
+	}
+}
+
+func TestRunSelectsCanonicalEquivalentConfiguredLocale(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "en.json")
+	if err := os.WriteFile(sourcePath, []byte(`{"save":"Save"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig(dir, sourcePath)
+	cfg.TargetLocales = []string{"pt-br"}
+
+	results, err := Run(context.Background(), cfg, nil, Options{DryRun: true, Locales: []string{"pt-BR"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Locale != "pt-br" || results[0].TargetPath != filepath.Join(dir, "pt-br.json") {
+		t.Fatalf("Run results = %#v, want configured locale spelling and path", results)
 	}
 }
 

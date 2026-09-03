@@ -11,6 +11,7 @@ import (
 	"github.com/Tom-R-Main/Internationalizer/internal/config"
 	"github.com/Tom-R-Main/Internationalizer/internal/formats"
 	"github.com/Tom-R-Main/Internationalizer/internal/glossary"
+	"github.com/Tom-R-Main/Internationalizer/internal/message"
 	"github.com/Tom-R-Main/Internationalizer/internal/policy"
 	"github.com/Tom-R-Main/Internationalizer/internal/state"
 	"github.com/Tom-R-Main/Internationalizer/internal/styleguide"
@@ -139,6 +140,12 @@ func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]s
 	if (opts.Strict || opts.RequireState) && pluralStyle == "i18next-v4" {
 		validationKeys, requiredPluralKeys, optionalPluralKeys = ExpandI18nextV4Source(sourceKeys, sourceLocale, locale)
 	}
+	sourceICUValid := make(map[string]bool, len(validationKeys))
+	for key, sourceValue := range validationKeys {
+		findings := ICUSourceFindings(key, sourceValue, sourceLocale)
+		sourceICUValid[key] = len(findings) == 0
+		report.Findings = append(report.Findings, findings...)
+	}
 
 	targetData, err := os.ReadFile(targetPath)
 	if err != nil {
@@ -197,6 +204,9 @@ func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]s
 		if mismatch := InterpolationMismatch(key, sourceValue, targetValue); mismatch != nil {
 			report.Mismatches = append(report.Mismatches, *mismatch)
 		}
+		if sourceICUValid[key] {
+			report.Findings = append(report.Findings, ICUFindings(key, sourceValue, targetValue, locale)...)
+		}
 		if opts.Strict {
 			report.Findings = append(report.Findings, ProtectedFindings(key, sourceValue, targetValue)...)
 			report.Findings = append(report.Findings, glossaryFindings(key, sourceValue, targetValue, terms)...)
@@ -233,6 +243,38 @@ func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]s
 		}
 	}
 	return report
+}
+
+// ICUFindings compares ICU MessageFormat structure independently of linguistic
+// strictness. Message syntax and branch identity are runtime correctness.
+func ICUFindings(key, source, target, targetLocale string) []Finding {
+	return messageFindings(key, message.Compare(source, target, targetLocale))
+}
+
+// ICUSourceFindings validates source syntax and source-locale plural selectors
+// even when a target file does not exist yet.
+func ICUSourceFindings(key, source, sourceLocale string) []Finding {
+	return messageFindings(key, message.Compare(source, source, sourceLocale))
+}
+
+func messageFindings(key string, issues []message.Issue) []Finding {
+	findings := make([]Finding, 0, len(issues))
+	for _, issue := range issues {
+		code := CodeICUArgumentMismatch
+		switch issue.Code {
+		case message.CodeSyntax:
+			code = CodeICUMessageSyntax
+		case message.CodeSelectorMismatch, message.CodeInvalidPluralCategory:
+			code = CodeICUSelectorMismatch
+		}
+		findings = append(findings, Finding{
+			Code:     code,
+			Severity: SeverityError,
+			Key:      key,
+			Message:  issue.Message,
+		})
+	}
+	return findings
 }
 
 func missingFinding(key string, requiredPluralKeys map[string]struct{}) Finding {

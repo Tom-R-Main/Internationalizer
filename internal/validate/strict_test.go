@@ -221,14 +221,14 @@ func TestTargetOnlyPluralFormsReceiveContentAndStateValidation(t *testing.T) {
 	}
 }
 
-func TestUnknownLocaleDoesNotGuessPluralRequirements(t *testing.T) {
+func TestPrivateUseLocaleUsesRootPluralRequirements(t *testing.T) {
 	cfg := validationConfig(t,
 		map[string]string{"items_one": "{{count}} item", "items_other": "{{count}} items"},
 		map[string]string{"items_one": "{{count}} x", "items_other": "{{count}} xs"},
 	)
 	oldTarget := targetPath(cfg)
-	cfg.TargetLocales = []string{"xx-ZZ"}
-	newTarget := filepath.Join(filepath.Dir(oldTarget), "xx-ZZ.json")
+	cfg.TargetLocales = []string{"qaa-ZZ"}
+	newTarget := filepath.Join(filepath.Dir(oldTarget), "qaa-ZZ.json")
 	if err := os.Rename(oldTarget, newTarget); err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestUnknownLocaleDoesNotGuessPluralRequirements(t *testing.T) {
 		t.Fatal(err)
 	}
 	if findingByCode(reports[0], CodePluralFormMissing).Code != "" {
-		t.Fatalf("unknown locale received guessed plural finding: %#v", reports[0])
+		t.Fatalf("private-use locale received an unsupported plural finding: %#v", reports[0])
 	}
 
 	writeJSON(t, newTarget, map[string]string{"items_other": "{{count}} xs"})
@@ -247,7 +247,9 @@ func TestUnknownLocaleDoesNotGuessPluralRequirements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertFindingCodes(t, reports[0], CodeMissingKey)
+	if HasFailures(reports) {
+		t.Fatalf("root plural fallback rejected an other-only target: %#v", reports[0])
+	}
 }
 
 func TestI18nextPluralCoverageUsesTargetLocaleRequirements(t *testing.T) {

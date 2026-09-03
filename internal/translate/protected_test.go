@@ -5,7 +5,7 @@ import "testing"
 func TestValidateTranslationValuePreservesProtectedMarkdown(t *testing.T) {
 	source := "Read [the guide](https://example.com/guide) and run `go test`.\n\n```go\nfmt.Println(\"ok\")\n```\n"
 	valid := "Lisez [le guide](https://example.com/guide) et lancez `go test`.\n\n```go\nfmt.Println(\"ok\")\n```\n"
-	if err := validateTranslationValue("_content", source, valid); err != nil {
+	if err := validateTranslationValue("_content", source, valid, "fr"); err != nil {
 		t.Fatalf("valid protected Markdown was rejected: %v", err)
 	}
 
@@ -16,7 +16,7 @@ func TestValidateTranslationValuePreservesProtectedMarkdown(t *testing.T) {
 	}
 	for name, target := range tests {
 		t.Run(name, func(t *testing.T) {
-			if err := validateTranslationValue("_content", source, target); err == nil {
+			if err := validateTranslationValue("_content", source, target, "fr"); err == nil {
 				t.Fatal("invalid protected Markdown was accepted")
 			}
 		})

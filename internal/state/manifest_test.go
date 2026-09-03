@@ -50,12 +50,56 @@ func TestLoadRejectsMalformedManifest(t *testing.T) {
 	}
 }
 
+func TestLoadMigratesLegacyLocaleIdentityInMemory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	data := []byte(`{"schema_version":1,"translations":{"legacy-raw-key":{"bundle":"app","key":"save","locale":"pt-br","source_hash":"source","policy_hash":"policy","target_hash":"target","updated_at":"2026-01-01T00:00:00Z"}}}`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := manifest.Get("app", "save", "pt-BR")
+	if !ok || entry.Locale != "pt-BR" {
+		t.Fatalf("legacy entry = %#v, %v; want canonicalized lookup", entry, ok)
+	}
+}
+
+func TestLoadRejectsConflictingCanonicalLocaleIdentities(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	data := []byte(`{"schema_version":1,"translations":{"first":{"bundle":"app","key":"save","locale":"pt-br","source_hash":"one","updated_at":"2026-01-01T00:00:00Z"},"second":{"bundle":"app","key":"save","locale":"pt-BR","source_hash":"two","updated_at":"2026-01-01T00:00:00Z"}}}`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load accepted conflicting canonical-equivalent identities")
+	}
+}
+
 func TestHashesSeparateSourceFormatAndPolicy(t *testing.T) {
 	if SourceHash("json", "Save") == SourceHash("markdown", "Save") {
 		t.Fatal("source hash ignored format")
 	}
 	if mustHashValue(t, struct{ Prompt string }{"one"}) == mustHashValue(t, struct{ Prompt string }{"two"}) {
 		t.Fatal("policy hash ignored prompt")
+	}
+}
+
+func TestManifestIdentityCanonicalizesLocale(t *testing.T) {
+	manifest := New()
+	entry := Entry{Bundle: "app", Key: "save", Locale: "pt-br"}
+	manifest.Set(entry)
+
+	got, ok := manifest.Get("app", "save", "pt-BR")
+	if !ok {
+		t.Fatal("canonical-equivalent locale did not find the manifest entry")
+	}
+	if got.Locale != "pt-BR" {
+		t.Fatalf("stored locale = %q, want %q", got.Locale, "pt-BR")
+	}
+	if Identity("app", "save", "pt-br") != Identity("app", "save", "pt-BR") {
+		t.Fatal("canonical-equivalent locales produced different identities")
 	}
 }
 

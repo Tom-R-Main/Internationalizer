@@ -138,8 +138,9 @@ baseline.
 ### `validate`
 
 Check all locale files against their source bundles. Default validation checks
-structural coverage (the percentage of required target keys present), reports extra keys
-as warnings, and fails for missing keys or interpolation mismatches.
+structural coverage (the percentage of required target keys present), reports
+extra keys as warnings, and fails for missing keys, interpolation mismatches,
+or invalid ICU MessageFormat structure.
 
 ```bash
 internationalizer validate                     # human-readable output
@@ -170,6 +171,9 @@ Human and JSON reports use stable finding codes:
 | `protected_structure_mismatch` | Interpolation, HTML, code, or link structure changed |
 | `glossary_violation` | No approved target term or variant was found |
 | `plural_form_missing` | A configured locale plural form is absent |
+| `icu_message_syntax` | A source or target ICU message is malformed |
+| `icu_argument_mismatch` | ICU argument names, types, or formatter styles differ |
+| `icu_selector_mismatch` | Selectors differ or a plural category is invalid for the target locale |
 | `untracked` | No manifest record exists for the target |
 | `source_stale` | Source content changed after the recorded translation |
 | `policy_stale` | The generated prompt or model settings changed |
@@ -299,6 +303,18 @@ validation:
   plural_style: i18next-v4 # generate and validate target-locale plural forms
 ```
 
+Locale identifiers must be well-formed BCP 47 tags such as `fr`, `pt-BR`, or
+`sr-Latn-RS`. Canonical-equivalent target locales are rejected as duplicates,
+and locale-specific provider overrides match canonical-equivalent spelling.
+
+ICU MessageFormat values are parsed structurally. Simple arguments, `select`,
+`plural`, `selectordinal`, `number`, `date`, and `time` are supported, including
+nested messages, plural offsets, exact-number selectors, and `#`. Validation
+checks syntax, argument types and formatter styles, plural offsets, select
+branch identity, and target-locale CLDR plural categories. Provider output that
+breaks these invariants is rejected before a locale file or translation-memory
+record is written.
+
 With `i18next-v4`, recognized source plural families are expanded during
 translation to the target locale's CLDR categories. A target-only category uses
 the source family's `_other` value as its translation template. Strict
@@ -392,6 +408,8 @@ internal/
     openai.go              OpenAI / compatible backend
     gemini.go              Google Gemini via AI Studio backend
                            OpenRouter uses openai.go with custom base_url
+  locale/                  BCP 47 identity and CLDR plural categories
+  message/                 ICU MessageFormat parser and structural comparison
   styleguide/              Style guide loader
   tm/                      JSONL translation memory
   translate/               Translation orchestrator
@@ -414,6 +432,8 @@ internal/
 ## License
 
 [AGPL-3.0](LICENSE)
+
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for dependency notices.
 
 ## Contributing
 

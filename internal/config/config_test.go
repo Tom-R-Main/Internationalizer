@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -247,5 +248,84 @@ func TestValidateProjectRejectsLLMOverrideForUnknownLocale(t *testing.T) {
 	}
 	if err := cfg.ValidateProject(); err == nil {
 		t.Fatal("ValidateProject accepted an LLM override for an unconfigured locale")
+	}
+}
+
+func TestValidateProjectRejectsInvalidBCP47Locales(t *testing.T) {
+	tests := []struct {
+		name          string
+		sourceLocale  string
+		targetLocales []string
+		want          string
+	}{
+		{name: "source", sourceLocale: "en_US", targetLocales: []string{"fr"}, want: "invalid source locale"},
+		{name: "target", sourceLocale: "en", targetLocales: []string{"fr_FR"}, want: "invalid target locale"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := &Config{
+				SourceLocale:  test.sourceLocale,
+				TargetLocales: test.targetLocales,
+				SourcePath:    filepath.Join("locales", "en.json"),
+			}
+			err := cfg.ValidateProject()
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ValidateProject error = %v, want error containing %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestValidateProjectRejectsCanonicalDuplicateLocales(t *testing.T) {
+	cfg := &Config{
+		SourceLocale:  "en",
+		TargetLocales: []string{"en-us", "en-US"},
+		SourcePath:    filepath.Join("locales", "en.json"),
+	}
+	err := cfg.ValidateProject()
+	if err == nil || !strings.Contains(err.Error(), "duplicate target locale") {
+		t.Fatalf("ValidateProject error = %v, want canonical duplicate error", err)
+	}
+}
+
+func TestValidateProjectAcceptsBCP47ScriptAndRegion(t *testing.T) {
+	cfg := &Config{
+		SourceLocale:  "en-US",
+		TargetLocales: []string{"sr-Latn-RS"},
+		SourcePath:    filepath.Join("locales", "en.json"),
+	}
+	if err := cfg.ValidateProject(); err != nil {
+		t.Fatalf("ValidateProject rejected valid BCP 47 locales: %v", err)
+	}
+}
+
+func TestValidateProjectMatchesCanonicalLLMOverrideLocale(t *testing.T) {
+	cfg := &Config{
+		SourceLocale:  "en",
+		TargetLocales: []string{"pt-br"},
+		SourcePath:    filepath.Join("locales", "en.json"),
+		LLM: LLM{LocaleOverrides: map[string]LLMOverride{
+			"pt-BR": {Provider: "openrouter", Model: "example/model"},
+		}},
+	}
+	if err := cfg.ValidateProject(); err != nil {
+		t.Fatalf("ValidateProject rejected canonical-equivalent override: %v", err)
+	}
+	if got := cfg.LLMForLocale("pt-br"); got.Provider != "openrouter" || got.Model != "example/model" {
+		t.Fatalf("LLMForLocale = %#v, want canonical-equivalent override", got)
+	}
+	if !cfg.HasLLMOverrideForLocale("pt-br") {
+		t.Fatal("HasLLMOverrideForLocale missed canonical-equivalent override")
+	}
+	if got, ok := cfg.ConfiguredTargetLocale("pt-BR"); !ok || got != "pt-br" {
+		t.Fatalf("ConfiguredTargetLocale = %q, %v; want %q, true", got, ok, "pt-br")
+	}
+}
+
+func TestBundleTargetPathStillRejectsUnsafeLocale(t *testing.T) {
+	bundle := Bundle{ID: "app", Target: filepath.Join("locales", "{locale}.json")}
+	if _, err := bundle.TargetPath("../fr"); err == nil {
+		t.Fatal("TargetPath accepted path traversal as a locale")
 	}
 }

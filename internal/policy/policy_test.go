@@ -140,6 +140,25 @@ func TestResolveUsesLocaleLLMOverride(t *testing.T) {
 	}
 }
 
+func TestResolveCanonicalizesLocaleIdentity(t *testing.T) {
+	canonicalConfig := baseConfig()
+	canonicalConfig.SourceLocale = "en-US"
+	canonical, err := policy.Resolve(canonicalConfig, "pt-BR", "json", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	variantConfig := baseConfig()
+	variantConfig.SourceLocale = "en-us"
+	variant, err := policy.Resolve(variantConfig, "pt-br", "json", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if variant.Hash != canonical.Hash || variant.Prompt != canonical.Prompt {
+		t.Fatal("canonical-equivalent locales produced different translation policies")
+	}
+}
+
 func baseConfig() *config.Config {
 	return &config.Config{
 		SourceLocale: "en",
