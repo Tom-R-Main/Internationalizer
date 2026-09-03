@@ -16,7 +16,7 @@ const (
 	DefaultAnthropicModel  = "claude-opus-5"
 	DefaultOpenAIModel     = "gpt-5.6-luna"
 	DefaultOpenAIReasoning = "max"
-	DefaultGeminiModel     = "gemini-3.7-flash"
+	DefaultGeminiModel     = "gemini-3.8-flash"
 	DefaultOpenRouterModel = "deepseek/deepseek-v4-pro-0813"
 )
 
@@ -45,6 +45,17 @@ type Bundle struct {
 }
 
 type LLM struct {
+	Provider        string                 `yaml:"provider"`
+	Model           string                 `yaml:"model"`
+	APIKeyEnv       string                 `yaml:"api_key_env"`
+	BaseURL         string                 `yaml:"base_url"`
+	ReasoningEffort string                 `yaml:"reasoning_effort"`
+	LocaleOverrides map[string]LLMOverride `yaml:"locale_overrides"`
+}
+
+// LLMOverride replaces LLM settings for one target locale. Fields omitted
+// while keeping the global provider inherit their global values.
+type LLMOverride struct {
 	Provider        string `yaml:"provider"`
 	Model           string `yaml:"model"`
 	APIKeyEnv       string `yaml:"api_key_env"`
@@ -74,36 +85,78 @@ func (c *Config) ApplyDefaults() {
 	if c.GlossaryDir == "" {
 		c.GlossaryDir = "glossary"
 	}
-	if c.LLM.Provider == "" {
-		c.LLM.Provider = "gemini"
+	applyLLMDefaults(&c.LLM)
+}
+
+func applyLLMDefaults(settings *LLM) {
+	if settings.Provider == "" {
+		settings.Provider = "gemini"
 	}
-	if c.LLM.Model == "" {
-		switch c.LLM.Provider {
+	if settings.Model == "" {
+		switch settings.Provider {
 		case "anthropic":
-			c.LLM.Model = DefaultAnthropicModel
+			settings.Model = DefaultAnthropicModel
 		case "openai":
-			c.LLM.Model = DefaultOpenAIModel
+			settings.Model = DefaultOpenAIModel
 		case "gemini":
-			c.LLM.Model = DefaultGeminiModel
+			settings.Model = DefaultGeminiModel
 		case "openrouter":
-			c.LLM.Model = DefaultOpenRouterModel
+			settings.Model = DefaultOpenRouterModel
 		}
 	}
-	if c.LLM.APIKeyEnv == "" {
-		switch c.LLM.Provider {
+	if settings.APIKeyEnv == "" {
+		switch settings.Provider {
 		case "anthropic":
-			c.LLM.APIKeyEnv = "ANTHROPIC_API_KEY"
+			settings.APIKeyEnv = "ANTHROPIC_API_KEY"
 		case "openai":
-			c.LLM.APIKeyEnv = "OPENAI_API_KEY"
+			settings.APIKeyEnv = "OPENAI_API_KEY"
 		case "gemini":
-			c.LLM.APIKeyEnv = "GOOGLE_AI_STUDIO_API_KEY"
+			settings.APIKeyEnv = "GOOGLE_AI_STUDIO_API_KEY"
 		case "openrouter":
-			c.LLM.APIKeyEnv = "OPENROUTER_API_KEY"
+			settings.APIKeyEnv = "OPENROUTER_API_KEY"
 		}
 	}
-	if c.LLM.Provider == "openai" && c.LLM.ReasoningEffort == "" {
-		c.LLM.ReasoningEffort = DefaultOpenAIReasoning
+	if settings.Provider == "openai" && settings.ReasoningEffort == "" {
+		settings.ReasoningEffort = DefaultOpenAIReasoning
 	}
+}
+
+// LLMForLocale returns the fully resolved LLM settings for a target locale.
+func (c *Config) LLMForLocale(locale string) LLM {
+	global := c.LLM
+	global.LocaleOverrides = nil
+	applyLLMDefaults(&global)
+
+	override, ok := c.LLM.LocaleOverrides[locale]
+	if !ok {
+		return global
+	}
+	effective := LLM{
+		Provider:        override.Provider,
+		Model:           override.Model,
+		APIKeyEnv:       override.APIKeyEnv,
+		BaseURL:         override.BaseURL,
+		ReasoningEffort: override.ReasoningEffort,
+	}
+	if effective.Provider == "" {
+		effective.Provider = global.Provider
+	}
+	if effective.Provider == global.Provider {
+		if effective.Model == "" {
+			effective.Model = global.Model
+		}
+		if effective.APIKeyEnv == "" {
+			effective.APIKeyEnv = global.APIKeyEnv
+		}
+		if effective.BaseURL == "" {
+			effective.BaseURL = global.BaseURL
+		}
+		if effective.ReasoningEffort == "" {
+			effective.ReasoningEffort = global.ReasoningEffort
+		}
+	}
+	applyLLMDefaults(&effective)
+	return effective
 }
 
 func (c *Config) Validate() error {
@@ -127,6 +180,14 @@ func (c *Config) ValidateProject() error {
 			return fmt.Errorf("duplicate target locale %q", locale)
 		}
 		localeSeen[locale] = struct{}{}
+	}
+	for locale := range c.LLM.LocaleOverrides {
+		if !validLocale.MatchString(locale) {
+			return fmt.Errorf("invalid llm locale override %q", locale)
+		}
+		if _, ok := localeSeen[locale]; !ok {
+			return fmt.Errorf("llm locale override %q is not in target_locales", locale)
+		}
 	}
 	bundles := c.EffectiveBundles()
 	if len(bundles) == 0 {
@@ -167,8 +228,41 @@ func (c *Config) ValidateProject() error {
 
 // ValidateCredentials checks provider credentials for a live translation run.
 func (c *Config) ValidateCredentials() error {
-	if c.LLM.APIKeyEnv != "" && os.Getenv(c.LLM.APIKeyEnv) == "" {
-		return fmt.Errorf("environment variable %s is not set", c.LLM.APIKeyEnv)
+	return c.ValidateCredentialsForLocales(nil)
+}
+
+// ValidateCredentialsForLocales checks only providers used by the requested
+// locales. An empty locale list checks all configured targets.
+func (c *Config) ValidateCredentialsForLocales(locales []string) error {
+	if len(locales) == 0 {
+		locales = c.TargetLocales
+	}
+	checked := make(map[string]struct{})
+	if len(locales) == 0 {
+		settings := c.LLM
+		settings.LocaleOverrides = nil
+		applyLLMDefaults(&settings)
+		return validateAPIKeyEnv(settings.APIKeyEnv, checked)
+	}
+	for _, locale := range locales {
+		apiKeyEnv := c.LLMForLocale(locale).APIKeyEnv
+		if err := validateAPIKeyEnv(apiKeyEnv, checked); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateAPIKeyEnv(apiKeyEnv string, checked map[string]struct{}) error {
+	if apiKeyEnv == "" {
+		return nil
+	}
+	if _, ok := checked[apiKeyEnv]; ok {
+		return nil
+	}
+	checked[apiKeyEnv] = struct{}{}
+	if os.Getenv(apiKeyEnv) == "" {
+		return fmt.Errorf("environment variable %s is not set", apiKeyEnv)
 	}
 	return nil
 }
@@ -207,6 +301,11 @@ func (b Bundle) TargetPath(locale string) (string, error) {
 // APIKey returns the resolved API key from the environment.
 func (c *Config) APIKey() string {
 	return os.Getenv(c.LLM.APIKeyEnv)
+}
+
+// APIKeyForLocale resolves the configured credential for a target locale.
+func (c *Config) APIKeyForLocale(locale string) string {
+	return os.Getenv(c.LLMForLocale(locale).APIKeyEnv)
 }
 
 // Load reads the config from the given path, or searches default locations.

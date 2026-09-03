@@ -35,27 +35,52 @@ func newTranslateCmd() *cobra.Command {
 			}
 			// Local inspection and explicit adoption do not need provider credentials.
 			if !dryRun && !adoptExisting {
-				if err := cfg.ValidateCredentials(); err != nil {
+				if err := cfg.ValidateCredentialsForLocales(locales); err != nil {
 					return err
 				}
 			}
 
 			var provider llm.Provider
+			localeProviders := make(map[string]llm.Provider)
 			if !dryRun && !adoptExisting {
-				provider, err = llm.NewProvider(cfg.LLM, cfg.APIKey())
-				if err != nil {
-					return err
+				selectedLocales := locales
+				if len(selectedLocales) == 0 {
+					selectedLocales = cfg.TargetLocales
+				}
+				needsDefaultProvider := false
+				for _, locale := range selectedLocales {
+					if _, ok := cfg.LLM.LocaleOverrides[locale]; !ok {
+						needsDefaultProvider = true
+						break
+					}
+				}
+				if needsDefaultProvider {
+					provider, err = llm.NewProvider(cfg.LLM, cfg.APIKey())
+					if err != nil {
+						return err
+					}
+				}
+				for _, locale := range selectedLocales {
+					if _, ok := cfg.LLM.LocaleOverrides[locale]; !ok {
+						continue
+					}
+					localeLLM := cfg.LLMForLocale(locale)
+					localeProviders[locale], err = llm.NewProvider(localeLLM, cfg.APIKeyForLocale(locale))
+					if err != nil {
+						return fmt.Errorf("creating LLM provider for locale %s: %w", locale, err)
+					}
 				}
 			}
 
 			start := time.Now()
 			results, err := translate.Run(context.Background(), cfg, provider, translate.Options{
-				DryRun:        dryRun,
-				AdoptExisting: adoptExisting,
-				RefreshPolicy: refreshPolicy,
-				Locales:       locales,
-				BatchSize:     batchSize,
-				Concurrency:   concurrency,
+				DryRun:          dryRun,
+				AdoptExisting:   adoptExisting,
+				RefreshPolicy:   refreshPolicy,
+				Locales:         locales,
+				BatchSize:       batchSize,
+				Concurrency:     concurrency,
+				LocaleProviders: localeProviders,
 			})
 			if len(results) > 0 {
 				if _, outputErr := fmt.Fprint(cmd.OutOrStdout(), translate.FormatResults(results, time.Since(start))); outputErr != nil {

@@ -11,11 +11,17 @@ import (
 )
 
 type fakeProvider struct {
+	name     string
 	response *llm.TranslateResponse
 	calls    int
 }
 
-func (p *fakeProvider) Name() string { return "fake" }
+func (p *fakeProvider) Name() string {
+	if p.name != "" {
+		return p.name
+	}
+	return "fake"
+}
 
 func (p *fakeProvider) Translate(_ context.Context, _ llm.TranslateRequest) (*llm.TranslateResponse, error) {
 	p.calls++
@@ -43,6 +49,69 @@ func TestRunRejectsIncompleteProviderResponseWithoutWritingTarget(t *testing.T) 
 	}
 	if _, statErr := os.Stat(filepath.Join(dir, "fr.json")); !os.IsNotExist(statErr) {
 		t.Fatalf("target was written after incomplete response; stat error = %v", statErr)
+	}
+}
+
+func TestRunRoutesLocaleToConfiguredProvider(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "en.json")
+	if err := os.WriteFile(sourcePath, []byte(`{"hello":"Hello"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := testConfig(dir, sourcePath)
+	cfg.TargetLocales = []string{"fr", "ja"}
+	cfg.LLM.LocaleOverrides = map[string]config.LLMOverride{
+		"ja": {
+			Provider: "openrouter",
+			Model:    "sakana/sakana-namazu",
+		},
+	}
+	defaultProvider := &fakeProvider{name: "gemini", response: &llm.TranslateResponse{
+		Translations: map[string]string{"hello": "Bonjour"},
+	}}
+	japaneseProvider := &fakeProvider{name: "openrouter", response: &llm.TranslateResponse{
+		Translations: map[string]string{"hello": "こんにちは"},
+	}}
+
+	results, err := Run(context.Background(), cfg, defaultProvider, Options{
+		LocaleProviders: map[string]llm.Provider{"ja": japaneseProvider},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 || defaultProvider.calls != 1 || japaneseProvider.calls != 1 {
+		t.Fatalf("results = %#v, default calls = %d, Japanese calls = %d", results, defaultProvider.calls, japaneseProvider.calls)
+	}
+	if got, err := os.ReadFile(filepath.Join(dir, "ja.json")); err != nil {
+		t.Fatal(err)
+	} else if string(got) != "{\n  \"hello\": \"こんにちは\"\n}\n" {
+		t.Fatalf("Japanese target = %q", got)
+	}
+}
+
+func TestRunDoesNotFallBackWhenLocaleProviderIsMissing(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "en.json")
+	if err := os.WriteFile(sourcePath, []byte(`{"hello":"Hello"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := testConfig(dir, sourcePath)
+	cfg.TargetLocales = []string{"ja"}
+	cfg.LLM.LocaleOverrides = map[string]config.LLMOverride{
+		"ja": {Provider: "openrouter", Model: "sakana/sakana-namazu"},
+	}
+	defaultProvider := &fakeProvider{response: &llm.TranslateResponse{
+		Translations: map[string]string{"hello": "wrong provider"},
+	}}
+
+	results, err := Run(context.Background(), cfg, defaultProvider, Options{})
+	if err == nil {
+		t.Fatal("Run accepted a global provider for a locale with an override")
+	}
+	if len(results) != 1 || len(results[0].Errors) == 0 || defaultProvider.calls != 0 {
+		t.Fatalf("results = %#v, global provider calls = %d", results, defaultProvider.calls)
 	}
 }
 

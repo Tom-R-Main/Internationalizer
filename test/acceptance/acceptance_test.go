@@ -63,7 +63,7 @@ func TestDetectUsesProjectFixture(t *testing.T) {
 	for _, want := range []string{
 		"Detected: react-i18next (confidence: 90%)",
 		"source_path: public/locales/en.json",
-		"model: gemini-3.7-flash",
+		"model: gemini-3.8-flash",
 	} {
 		if !strings.Contains(normalizedStdout, want) {
 			t.Fatalf("detect stdout does not contain %q:\n%s", want, result.stdout)

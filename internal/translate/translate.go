@@ -22,12 +22,13 @@ const promptPolicyVersion = 1
 
 // Options configures a translation run.
 type Options struct {
-	DryRun        bool
-	AdoptExisting bool
-	RefreshPolicy bool
-	Locales       []string // filter to specific locales; empty = all from config
-	BatchSize     int      // override config; 0 = use config
-	Concurrency   int      // override config; 0 = use config
+	DryRun          bool
+	AdoptExisting   bool
+	RefreshPolicy   bool
+	Locales         []string                // filter to specific locales; empty = all from config
+	BatchSize       int                     // override config; 0 = use config
+	Concurrency     int                     // override config; 0 = use config
+	LocaleProviders map[string]llm.Provider // provider overrides keyed by target locale
 }
 
 // Result holds the outcome of one bundle and locale. Lifecycle counters are
@@ -151,7 +152,13 @@ func Run(ctx context.Context, cfg *config.Config, provider llm.Provider, opts Op
 		go func() {
 			defer workers.Done()
 			for current := range jobs {
-				outputs[current.index] = translateLocale(ctx, cfg, current.bundle, provider, memory, manifest, current.locale, batchSize, opts)
+				currentProvider := provider
+				if localeProvider, ok := opts.LocaleProviders[current.locale]; ok {
+					currentProvider = localeProvider
+				} else if _, hasOverride := cfg.LLM.LocaleOverrides[current.locale]; hasOverride {
+					currentProvider = nil
+				}
+				outputs[current.index] = translateLocale(ctx, cfg, current.bundle, currentProvider, memory, manifest, current.locale, batchSize, opts)
 			}
 		}()
 	}
@@ -240,6 +247,7 @@ func translateLocale(
 	opts Options,
 ) jobOutput {
 	result := Result{Bundle: bundle.bundle.ID, Locale: locale, KeysTotal: len(bundle.sourceKeys)}
+	localeLLM := cfg.LLMForLocale(locale)
 	targetPath, err := bundle.bundle.TargetPath(locale)
 	if err != nil {
 		result.Errors = append(result.Errors, err.Error())
@@ -270,7 +278,7 @@ func translateLocale(
 		Model        string `json:"model"`
 		Reasoning    string `json:"reasoning_effort"`
 		Prompt       string `json:"prompt"`
-	}{promptPolicyVersion, cfg.SourceLocale, locale, bundle.format.Name(), cfg.LLM.Provider, cfg.LLM.Model, llm.EffectiveReasoningEffort(cfg.LLM), prompt})
+	}{promptPolicyVersion, cfg.SourceLocale, locale, bundle.format.Name(), localeLLM.Provider, localeLLM.Model, llm.EffectiveReasoningEffort(localeLLM), prompt})
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("hashing translation policy: %v", err))
 		return jobOutput{result: result}
@@ -391,7 +399,7 @@ func translateLocale(
 		for _, plan := range batchPlans {
 			translation := response.Translations[plan.key]
 			staged[plan.key] = translation
-			origins[plan.key] = translationOrigin{kind: "provider", provider: provider.Name(), model: cfg.LLM.Model}
+			origins[plan.key] = translationOrigin{kind: "provider", provider: provider.Name(), model: localeLLM.Model}
 			result.KeysTranslated++
 			records = append(records, tm.Record{
 				Bundle:     bundle.bundle.ID,
@@ -402,7 +410,7 @@ func translateLocale(
 				Hash:       plan.sourceHash,
 				PolicyHash: policyHash,
 				Provider:   provider.Name(),
-				Model:      cfg.LLM.Model,
+				Model:      localeLLM.Model,
 				Timestamp:  time.Now().UTC(),
 			})
 		}

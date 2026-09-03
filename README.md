@@ -83,7 +83,7 @@ bundles:
 
 llm:
   provider: gemini
-  model: gemini-3.7-flash
+  model: gemini-3.8-flash
   api_key_env: GOOGLE_AI_STUDIO_API_KEY
 ```
 
@@ -184,7 +184,7 @@ internationalizer tm clear --force             # delete all records
 source_locale: en
 
 # Languages to translate into (required)
-target_locales: [fr, de, es, ja, zh-CN, ar]
+target_locales: [fr, de, es, ja, yue, zh-CN, zh-TW, ar]
 
 # One or more source-to-target mappings (required).
 # {locale} is replaced with each configured target locale.
@@ -210,9 +210,9 @@ llm:
   # Model name defaults by provider:
   #   anthropic:  claude-opus-5
   #   openai:     gpt-5.6-luna (reasoning effort defaults to max)
-  #   gemini:     gemini-3.7-flash
+  #   gemini:     gemini-3.8-flash
   #   openrouter: deepseek/deepseek-v4-pro-0813
-  model: gemini-3.7-flash
+  model: gemini-3.8-flash
 
   # Environment variable containing the API key
   api_key_env: GOOGLE_AI_STUDIO_API_KEY
@@ -223,6 +223,27 @@ llm:
   # OpenAI GPT-5-series Responses API reasoning effort
   # (default: max for the OpenAI provider)
   reasoning_effort: max
+
+  # Optional LLM settings for individual target locales. An override using the
+  # global provider inherits unspecified global settings. A different provider
+  # uses that provider's defaults for unspecified settings.
+  locale_overrides:
+    ja:
+      provider: openrouter
+      model: sakana/sakana-namazu
+      api_key_env: OPENROUTER_API_KEY
+    yue:
+      provider: openrouter
+      model: deepseek/deepseek-v4-flash-0731
+      api_key_env: OPENROUTER_API_KEY
+    zh-CN:
+      provider: openrouter
+      model: deepseek/deepseek-v4-flash-0731
+      api_key_env: OPENROUTER_API_KEY
+    zh-TW:
+      provider: openrouter
+      model: deepseek/deepseek-v4-flash-0731
+      api_key_env: OPENROUTER_API_KEY
 
 # Keys per LLM call (default: 40)
 batch_size: 40

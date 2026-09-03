@@ -2,7 +2,7 @@
 # Copy this file to .internationalizer.yml and customize for your project.
 
 source_locale: en
-target_locales: [fr, de, es, ja]
+target_locales: [fr, de, es, ja, yue, zh-CN, zh-TW]
 bundles:
   - id: app
     source: locales/en.json
@@ -11,9 +11,26 @@ bundles:
 
 llm:
   provider: gemini                 # recommended via AI Studio; or "anthropic", "openai", "openrouter"
-  model: gemini-3.7-flash          # or "claude-opus-5" / "gpt-5.6-luna" / "deepseek/deepseek-v4-pro-0813"
+  model: gemini-3.8-flash          # or "claude-opus-5" / "gpt-5.6-luna" / "deepseek/deepseek-v4-pro-0813"
   api_key_env: GOOGLE_AI_STUDIO_API_KEY   # env var containing your API key
   # base_url: https://api.openai.com  # for OpenAI-compatible endpoints
+  locale_overrides:               # optional provider/model settings by target locale
+    ja:
+      provider: openrouter
+      model: sakana/sakana-namazu
+      api_key_env: OPENROUTER_API_KEY
+    yue:
+      provider: openrouter
+      model: deepseek/deepseek-v4-flash-0731
+      api_key_env: OPENROUTER_API_KEY
+    zh-CN:
+      provider: openrouter
+      model: deepseek/deepseek-v4-flash-0731
+      api_key_env: OPENROUTER_API_KEY
+    zh-TW:
+      provider: openrouter
+      model: deepseek/deepseek-v4-flash-0731
+      api_key_env: OPENROUTER_API_KEY
 
 batch_size: 40        # keys per LLM call
 concurrency: 4        # parallel locale translations
