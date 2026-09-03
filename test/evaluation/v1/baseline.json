@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-09-03",
+  "commit": "c95cfbdda62f569e353bac59f4a8dbd9b7d5834e",
+  "go_version": "go1.27.0",
+  "platform": "darwin/arm64",
+  "command": "GOTOOLCHAIN=local GOPROXY=off go run ./cmd/internationalizer validate --config test/evaluation/v1/project/config.yml --json",
+  "provider": null,
+  "model": null,
+  "exit_code": 1,
+  "observed_report": {
+    "bundle": "evaluation",
+    "locale": "fr",
+    "missing": ["items_other", "missing"],
+    "extra": ["extra"],
+    "interpolation_mismatches": ["placeholder"],
+    "coverage": 80
+  },
+  "not_observed": [
+    "source_identical",
+    "protected_structure_mismatch_for_html",
+    "glossary_violation",
+    "plural_form_missing",
+    "translated_coverage"
+  ]
+}

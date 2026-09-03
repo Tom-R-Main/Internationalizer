@@ -8,6 +8,7 @@ import (
 
 	"github.com/Tom-R-Main/Internationalizer/internal/config"
 	"github.com/Tom-R-Main/Internationalizer/internal/llm"
+	validation "github.com/Tom-R-Main/Internationalizer/internal/validate"
 )
 
 type fakeProvider struct {
@@ -49,6 +50,65 @@ func TestRunRejectsIncompleteProviderResponseWithoutWritingTarget(t *testing.T) 
 	}
 	if _, statErr := os.Stat(filepath.Join(dir, "fr.json")); !os.IsNotExist(statErr) {
 		t.Fatalf("target was written after incomplete response; stat error = %v", statErr)
+	}
+}
+
+func TestRunProducesTargetLocalePluralFormsThatPassStrictValidation(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "en.json")
+	if err := os.WriteFile(sourcePath, []byte(`{"items_one":"{{count}} item","items_other":"{{count}} items"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig(dir, sourcePath)
+	cfg.Validation.PluralStyle = "i18next-v4"
+	provider := &fakeProvider{response: &llm.TranslateResponse{Translations: map[string]string{
+		"items_many":  "{{count}} articles",
+		"items_one":   "{{count}} article",
+		"items_other": "{{count}} articles",
+	}}}
+
+	if _, err := Run(context.Background(), cfg, provider, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	reports, err := validation.ValidateWithOptions(cfg, validation.Options{RequireState: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validation.HasFailures(reports) {
+		t.Fatalf("translated plural target failed state validation: %#v", reports[0])
+	}
+	reports, err = validation.ValidateWithOptions(cfg, validation.Options{Strict: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validation.HasFailures(reports) {
+		t.Fatalf("translated plural target failed content validation: %#v", reports[0])
+	}
+}
+
+func TestRunProducesTargetLocalePluralFormsForYAML(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "en.yml")
+	if err := os.WriteFile(sourcePath, []byte("# source\nitems_one: '{{count}} item'\nitems_other: '{{count}} items'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig(dir, sourcePath)
+	cfg.Validation.PluralStyle = "i18next-v4"
+	provider := &fakeProvider{response: &llm.TranslateResponse{Translations: map[string]string{
+		"items_many":  "{{count}} articles",
+		"items_one":   "{{count}} article",
+		"items_other": "{{count}} articles",
+	}}}
+
+	if _, err := Run(context.Background(), cfg, provider, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	reports, err := validation.ValidateWithOptions(cfg, validation.Options{Strict: true, RequireState: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validation.HasFailures(reports) {
+		t.Fatalf("translated YAML plural target failed validation: %#v", reports[0])
 	}
 }
 

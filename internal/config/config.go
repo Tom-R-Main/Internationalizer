@@ -21,18 +21,24 @@ const (
 )
 
 type Config struct {
-	SourceLocale   string   `yaml:"source_locale"`
-	TargetLocales  []string `yaml:"target_locales"`
-	SourcePath     string   `yaml:"source_path"`
-	Bundles        []Bundle `yaml:"bundles"`
-	LLM            LLM      `yaml:"llm"`
-	BatchSize      int      `yaml:"batch_size"`
-	Concurrency    int      `yaml:"concurrency"`
-	StyleGuidesDir string   `yaml:"style_guides_dir"`
-	GlossaryDir    string   `yaml:"glossary_dir"`
-	TMPath         string   `yaml:"tm_path"`
-	ManifestPath   string   `yaml:"manifest_path"`
-	Formats        []string `yaml:"formats"`
+	SourceLocale   string     `yaml:"source_locale"`
+	TargetLocales  []string   `yaml:"target_locales"`
+	SourcePath     string     `yaml:"source_path"`
+	Bundles        []Bundle   `yaml:"bundles"`
+	LLM            LLM        `yaml:"llm"`
+	BatchSize      int        `yaml:"batch_size"`
+	Concurrency    int        `yaml:"concurrency"`
+	StyleGuidesDir string     `yaml:"style_guides_dir"`
+	GlossaryDir    string     `yaml:"glossary_dir"`
+	TMPath         string     `yaml:"tm_path"`
+	ManifestPath   string     `yaml:"manifest_path"`
+	Formats        []string   `yaml:"formats"`
+	Validation     Validation `yaml:"validation"`
+}
+
+// Validation configures optional project-specific validation rules.
+type Validation struct {
+	PluralStyle string `yaml:"plural_style"`
 }
 
 // Bundle maps one source file to a locale-specific target path.
@@ -168,6 +174,9 @@ func (c *Config) Validate() error {
 
 // ValidateProject checks configuration that is required even for dry runs.
 func (c *Config) ValidateProject() error {
+	if c.Validation.PluralStyle != "" && c.Validation.PluralStyle != "i18next-v4" {
+		return fmt.Errorf("unsupported validation.plural_style %q", c.Validation.PluralStyle)
+	}
 	if len(c.TargetLocales) == 0 {
 		return fmt.Errorf("target_locales must not be empty")
 	}

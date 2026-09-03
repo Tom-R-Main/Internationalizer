@@ -1,0 +1,13 @@
+{
+  "seeded": "Save",
+  "brand": "Lens",
+  "placeholder": "Bonjour",
+  "markup": "Cliquez ici",
+  "term": "Ouvrez le tableau",
+  "items_one": "{{count}} article",
+  "state": {
+    "open": "Ouvert",
+    "closed": "Ouvert"
+  },
+  "extra": "Supplémentaire"
+}

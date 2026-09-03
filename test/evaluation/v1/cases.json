@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "missing-key",
+      "kind": "validation",
+      "source": "Missing",
+      "target_present": false,
+      "expected_finding_codes": ["missing_key"]
+    },
+    {
+      "id": "unexpected-target-key",
+      "kind": "validation",
+      "target": "Supplémentaire",
+      "source_present": false,
+      "expected_finding_codes": ["extra_key"]
+    },
+    {
+      "id": "english-seed",
+      "kind": "validation",
+      "source": "Save",
+      "target": "Save",
+      "expected_finding_codes": ["source_identical"]
+    },
+    {
+      "id": "allowed-product-name",
+      "kind": "validation",
+      "source": "Lens",
+      "target": "Lens",
+      "glossary": [{"source": "Lens", "target": "Lens", "whole_word": true}],
+      "expected_finding_codes": []
+    },
+    {
+      "id": "placeholder-damage",
+      "kind": "validation",
+      "source": "Hello, {{name}}",
+      "target": "Bonjour",
+      "expected_finding_codes": ["protected_structure_mismatch"]
+    },
+    {
+      "id": "html-damage",
+      "kind": "validation",
+      "source": "Click <strong>here</strong>",
+      "target": "Cliquez ici",
+      "expected_finding_codes": ["protected_structure_mismatch"]
+    },
+    {
+      "id": "glossary-drift",
+      "kind": "validation",
+      "source": "Open the Dashboard",
+      "target": "Ouvrez le tableau",
+      "glossary": [{"source": "Dashboard", "target": "Tableau de bord", "whole_word": true}],
+      "expected_finding_codes": ["glossary_violation"]
+    },
+    {
+      "id": "target-plural-gap",
+      "kind": "validation",
+      "source_locale": "en",
+      "target_locale": "fr",
+      "plural_style": "i18next-v4",
+      "source_keys": ["items_one", "items_other"],
+      "target_keys": ["items_one"],
+      "expected_finding_codes": ["plural_form_missing"]
+    },
+    {
+      "id": "collapsed-sibling-states",
+      "kind": "audit",
+      "sources": {"state.open": "Open", "state.closed": "Closed"},
+      "targets": {"state.open": "Ouvert", "state.closed": "Ouvert"},
+      "expected_finding_codes": ["sibling_translation_collapsed"]
+    },
+    {
+      "id": "unsafe-number-change",
+      "kind": "candidate",
+      "previous_source": "Retry in 5 minutes",
+      "current_source": "Retry in 30 minutes",
+      "expected_eligibility": "reject",
+      "expected_reason": "semantic_anchor_changed"
+    },
+    {
+      "id": "unsafe-negation-change",
+      "kind": "candidate",
+      "previous_source": "Notifications are enabled",
+      "current_source": "Notifications are not enabled",
+      "expected_eligibility": "reject",
+      "expected_reason": "semantic_anchor_changed"
+    },
+    {
+      "id": "safe-copy-edit",
+      "kind": "repair",
+      "previous_source": "Save item",
+      "previous_target": "Enregistrer l’élément",
+      "current_source": "Save this item",
+      "reviewed_reference": "Enregistrer cet élément",
+      "expected_eligibility": "eligible"
+    }
+  ]
+}

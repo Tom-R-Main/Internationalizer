@@ -3,6 +3,7 @@ package validate
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Tom-R-Main/Internationalizer/internal/config"
@@ -63,5 +64,22 @@ func TestValidateReportsMalformedTargetAsFailure(t *testing.T) {
 	}
 	if len(reports) != 1 || len(reports[0].Errors) != 1 || !HasFailures(reports) {
 		t.Fatalf("reports = %#v, want malformed target failure", reports)
+	}
+}
+
+func TestFormatHumanPreservesInterpolationMismatchDetails(t *testing.T) {
+	reports := []Report{{
+		Bundle: "app",
+		Locale: "fr",
+		Mismatches: []Mismatch{{
+			Key:        "welcome",
+			SourceVars: []string{"name"},
+			TargetVars: nil,
+		}},
+	}}
+
+	got := FormatHuman(reports)
+	if !strings.Contains(got, "mismatch: welcome (source: [name], target: [])") {
+		t.Fatalf("FormatHuman omitted mismatch details: %q", got)
 	}
 }
