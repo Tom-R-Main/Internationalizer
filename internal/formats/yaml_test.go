@@ -3,6 +3,8 @@ package formats
 import (
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestYAMLParseExcludesNonStringLeaves(t *testing.T) {
@@ -52,6 +54,26 @@ func TestYAMLSerializePreservingAddsMissingEntriesInsideSequence(t *testing.T) {
 	}
 	if parsed["screens.0.items_many"] != "{{count}} articles" {
 		t.Fatalf("serialized entries = %#v\n%s", parsed, output)
+	}
+}
+
+func TestYAMLSerializePreservingCreatesMissingSequenceBranch(t *testing.T) {
+	f := &YAMLFormat{}
+	output, err := f.Serialize(map[string]string{
+		"title":           "Accueil",
+		"screens.0.title": "Paramètres",
+	}, []byte("title: Home\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Screens []map[string]string `yaml:"screens"`
+	}
+	if err := yaml.Unmarshal(output, &decoded); err != nil {
+		t.Fatalf("missing sequence branch changed shape: %v\n%s", err, output)
+	}
+	if len(decoded.Screens) != 1 || decoded.Screens[0]["title"] != "Paramètres" {
+		t.Fatalf("missing sequence branch = %#v\n%s", decoded.Screens, output)
 	}
 }
 

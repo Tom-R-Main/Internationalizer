@@ -62,7 +62,7 @@ func TestStrictValidationAllowsNonLinguisticValues(t *testing.T) {
 	}
 }
 
-func TestExtraKeyWarnsByDefaultAndFailsStrict(t *testing.T) {
+func TestExtraKeyWarnsByDefaultAndFailsStrictOrRequiredState(t *testing.T) {
 	cfg := validationConfig(t, map[string]string{"save": "Save"}, map[string]string{"save": "Enregistrer", "extra": "Supplémentaire"})
 
 	legacy, err := Validate(cfg)
@@ -82,6 +82,14 @@ func TestExtraKeyWarnsByDefaultAndFailsStrict(t *testing.T) {
 	}
 	if !HasFailures(strict) || findingByCode(strict[0], CodeExtraKey).Severity != SeverityError {
 		t.Fatalf("strict extra key did not fail: %#v", strict[0])
+	}
+
+	requiredState, err := ValidateWithOptions(cfg, Options{RequireState: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !HasFailures(requiredState) || findingByCode(requiredState[0], CodeExtraKey).Severity != SeverityError {
+		t.Fatalf("required-state extra key did not fail: %#v", requiredState[0])
 	}
 }
 

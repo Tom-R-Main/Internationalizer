@@ -251,8 +251,12 @@ func translateLocale(
 	opts Options,
 ) jobOutput {
 	sourceKeys := bundle.sourceKeys
+	var optionalPluralKeys map[string]struct{}
 	if cfg.Validation.PluralStyle == "i18next-v4" {
-		sourceKeys, _, _ = validation.ExpandI18nextV4Source(bundle.sourceKeys, cfg.SourceLocale, locale)
+		sourceKeys, _, optionalPluralKeys = validation.ExpandI18nextV4Source(bundle.sourceKeys, cfg.SourceLocale, locale)
+		for key := range optionalPluralKeys {
+			delete(sourceKeys, key)
+		}
 	}
 	result := Result{Bundle: bundle.bundle.ID, Locale: locale, KeysTotal: len(sourceKeys)}
 	targetPath, err := bundle.bundle.TargetPath(locale)
@@ -418,6 +422,18 @@ func translateLocale(
 		serializationBaseline := targetData
 		if !targetExists {
 			serializationBaseline = bundle.sourceData
+			if len(optionalPluralKeys) > 0 {
+				remover, ok := bundle.format.(formats.EntryRemover)
+				if !ok {
+					result.Errors = append(result.Errors, fmt.Sprintf("format %q cannot omit source-only plural forms", bundle.format.Name()))
+					return jobOutput{result: result}
+				}
+				serializationBaseline, err = remover.RemoveEntries(serializationBaseline, optionalPluralKeys)
+				if err != nil {
+					result.Errors = append(result.Errors, fmt.Sprintf("preparing target structure %s: %v", targetPath, err))
+					return jobOutput{result: result}
+				}
+			}
 		}
 		output, err := bundle.format.Serialize(staged, serializationBaseline)
 		if err != nil {

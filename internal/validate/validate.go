@@ -212,7 +212,7 @@ func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]s
 		}
 		report.Extra = append(report.Extra, key)
 		severity := SeverityWarning
-		if opts.Strict {
+		if opts.Strict || opts.RequireState {
 			severity = SeverityError
 		}
 		report.Findings = append(report.Findings, Finding{Code: CodeExtraKey, Severity: severity, Key: key, Message: "target contains a key absent from the source"})

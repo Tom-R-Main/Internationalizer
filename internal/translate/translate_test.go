@@ -2,6 +2,7 @@ package translate
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -83,6 +84,42 @@ func TestRunProducesTargetLocalePluralFormsThatPassStrictValidation(t *testing.T
 	}
 	if validation.HasFailures(reports) {
 		t.Fatalf("translated plural target failed content validation: %#v", reports[0])
+	}
+}
+
+func TestRunOmitsSourceOnlyPluralFormsForTargetLocale(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "en.json")
+	if err := os.WriteFile(sourcePath, []byte(`{"items_one":"{{count}} item","items_other":"{{count}} items"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig(dir, sourcePath)
+	cfg.TargetLocales = []string{"ja"}
+	cfg.Validation.PluralStyle = "i18next-v4"
+	provider := &fakeProvider{response: &llm.TranslateResponse{Translations: map[string]string{
+		"items_other": "{{count}} 個",
+	}}}
+
+	results, err := Run(context.Background(), cfg, provider, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].KeysTotal != 1 || results[0].KeysTranslated != 1 {
+		t.Fatalf("Japanese plural result = %#v, want only items_other", results)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "ja.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var target map[string]string
+	if err := json.Unmarshal(data, &target); err != nil {
+		t.Fatal(err)
+	}
+	if target["items_other"] != "{{count}} 個" {
+		t.Fatalf("Japanese target = %#v, want items_other", target)
+	}
+	if _, ok := target["items_one"]; ok {
+		t.Fatalf("Japanese target retained source-only plural: %#v", target)
 	}
 }
 

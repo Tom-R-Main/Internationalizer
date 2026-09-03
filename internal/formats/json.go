@@ -53,6 +53,46 @@ func (f *JSONFormat) Serialize(entries map[string]string, original []byte) ([]by
 	return serializeFromScratch(entries)
 }
 
+func (f *JSONFormat) RemoveEntries(original []byte, keys map[string]struct{}) ([]byte, error) {
+	var raw interface{}
+	dec := json.NewDecoder(bytes.NewReader(original))
+	dec.UseNumber()
+	if err := dec.Decode(&raw); err != nil {
+		return nil, fmt.Errorf("json parse original: %w", err)
+	}
+	removeJSONEntries("", raw, keys)
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(raw); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
+}
+
+func removeJSONEntries(prefix string, value interface{}, keys map[string]struct{}) {
+	switch node := value.(type) {
+	case map[string]interface{}:
+		for key, child := range node {
+			path := key
+			if prefix != "" {
+				path = prefix + "." + key
+			}
+			if _, remove := keys[path]; remove {
+				delete(node, key)
+				continue
+			}
+			removeJSONEntries(path, child, keys)
+		}
+	case []interface{}:
+		for index, child := range node {
+			path := fmt.Sprintf("%s.%d", prefix, index)
+			removeJSONEntries(path, child, keys)
+		}
+	}
+}
+
 // serializePreservingOrder walks the original JSON structure and replaces
 // leaf values from the entries map, preserving key ordering.
 func serializePreservingOrder(entries map[string]string, original []byte) ([]byte, error) {

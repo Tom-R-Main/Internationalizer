@@ -57,6 +57,43 @@ func (f *YAMLFormat) Serialize(entries map[string]string, original []byte) ([]by
 	return serializeYAMLFromScratch(entries)
 }
 
+func (f *YAMLFormat) RemoveEntries(original []byte, keys map[string]struct{}) ([]byte, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(original, &doc); err != nil {
+		return nil, fmt.Errorf("yaml parse original: %w", err)
+	}
+	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
+		removeYAMLEntries("", doc.Content[0], keys)
+	}
+	return yaml.Marshal(&doc)
+}
+
+func removeYAMLEntries(prefix string, node *yaml.Node, keys map[string]struct{}) {
+	switch node.Kind {
+	case yaml.MappingNode:
+		kept := node.Content[:0]
+		for index := 0; index+1 < len(node.Content); index += 2 {
+			keyNode := node.Content[index]
+			valueNode := node.Content[index+1]
+			path := keyNode.Value
+			if prefix != "" {
+				path = prefix + "." + keyNode.Value
+			}
+			if _, remove := keys[path]; remove {
+				continue
+			}
+			removeYAMLEntries(path, valueNode, keys)
+			kept = append(kept, keyNode, valueNode)
+		}
+		node.Content = kept
+	case yaml.SequenceNode:
+		for index, child := range node.Content {
+			path := fmt.Sprintf("%s.%d", prefix, index)
+			removeYAMLEntries(path, child, keys)
+		}
+	}
+}
+
 func serializeYAMLPreserving(entries map[string]string, original []byte) ([]byte, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(original, &doc); err != nil {
@@ -176,7 +213,8 @@ func setYAMLPath(node *yaml.Node, parts []string, value string) error {
 		if len(parts) == 1 {
 			valNode = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
 		} else {
-			valNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			valNode = &yaml.Node{}
+			ensureYAMLContainer(valNode, parts[1])
 		}
 		node.Content = append(node.Content, keyNode, valNode)
 	}
