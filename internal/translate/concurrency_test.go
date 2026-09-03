@@ -92,12 +92,16 @@ func TestRunHonorsCancellationBeforeWritingTargets(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	results, err := Run(ctx, cfg, &fakeProvider{}, Options{})
+	provider := &fakeProvider{}
+	results, err := Run(ctx, cfg, provider, Options{})
 	if err != context.Canceled {
 		t.Fatalf("Run error = %v, want context.Canceled", err)
 	}
 	if len(results) != 0 {
 		t.Fatalf("canceled run results = %#v, want none", results)
+	}
+	if provider.calls != 0 {
+		t.Fatalf("provider calls = %d, want none", provider.calls)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "fr.json")); !os.IsNotExist(err) {
 		t.Fatalf("canceled run created target: %v", err)

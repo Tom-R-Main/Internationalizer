@@ -83,6 +83,10 @@ type jobOutput struct {
 
 // Run executes the translation pipeline.
 func Run(ctx context.Context, cfg *config.Config, provider llm.Provider, opts Options) ([]Result, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	effectiveConfig := *cfg
 	effectiveConfig.ApplyDefaults()
 	cfg = &effectiveConfig
