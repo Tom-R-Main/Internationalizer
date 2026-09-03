@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	localeid "github.com/Tom-R-Main/Internationalizer/internal/locale"
 )
@@ -101,18 +102,30 @@ func LooksLike(input string) bool {
 			continue
 		}
 		cursor := index + 1
-		for cursor < len(input) && isSpace(input[cursor]) {
-			cursor++
+		for cursor < len(input) {
+			width := spaceWidth(input, cursor)
+			if width == 0 {
+				break
+			}
+			cursor += width
 		}
 		start := cursor
-		for cursor < len(input) && isIdentifierByte(input[cursor]) {
-			cursor++
+		for cursor < len(input) {
+			width := identifierWidth(input, cursor)
+			if width == 0 {
+				break
+			}
+			cursor += width
 		}
 		if cursor == start {
 			continue
 		}
-		for cursor < len(input) && isSpace(input[cursor]) {
-			cursor++
+		for cursor < len(input) {
+			width := spaceWidth(input, cursor)
+			if width == 0 {
+				break
+			}
+			cursor += width
 		}
 		if cursor >= len(input) || input[cursor] == '}' || input[cursor] == ',' {
 			return true
@@ -416,7 +429,7 @@ func (p *parser) parseMessage(nested, pluralContext bool) (*Message, error) {
 		switch current := p.input[p.position]; current {
 		case '{':
 			flush()
-			argument, err := p.parseArgument()
+			argument, err := p.parseArgument(pluralContext)
 			if err != nil {
 				return nil, err
 			}
@@ -492,7 +505,7 @@ func (p *parser) apostropheStartsQuote(pluralContext bool) bool {
 	}
 }
 
-func (p *parser) parseArgument() (*Argument, error) {
+func (p *parser) parseArgument(pluralContext bool) (*Argument, error) {
 	p.position++
 	p.skipSpace()
 	name := p.readIdentifier()
@@ -575,7 +588,8 @@ func (p *parser) parseArgument() (*Argument, error) {
 		if !p.consume('{') {
 			return nil, p.errorf("expected message branch for selector %q", selector)
 		}
-		branch, err := p.parseBranch(argumentType == ArgumentPlural || argumentType == ArgumentSelectOrdinal)
+		branchContext := pluralContext || argumentType == ArgumentPlural || argumentType == ArgumentSelectOrdinal
+		branch, err := p.parseBranch(branchContext)
 		if err != nil {
 			return nil, err
 		}
@@ -596,8 +610,12 @@ func (p *parser) parseArgument() (*Argument, error) {
 
 func (p *parser) readIdentifier() string {
 	start := p.position
-	for p.position < len(p.input) && isIdentifierByte(p.input[p.position]) {
-		p.position++
+	for p.position < len(p.input) {
+		width := identifierWidth(p.input, p.position)
+		if width == 0 {
+			break
+		}
+		p.position += width
 	}
 	return p.input[start:p.position]
 }
@@ -605,15 +623,23 @@ func (p *parser) readIdentifier() string {
 func (p *parser) readSelector() string {
 	p.skipSpace()
 	start := p.position
-	for p.position < len(p.input) && !isSpace(p.input[p.position]) && p.input[p.position] != '{' && p.input[p.position] != '}' {
-		p.position++
+	for p.position < len(p.input) && p.input[p.position] != '{' && p.input[p.position] != '}' {
+		if spaceWidth(p.input, p.position) != 0 {
+			break
+		}
+		_, width := utf8.DecodeRuneInString(p.input[p.position:])
+		p.position += width
 	}
 	return p.input[start:p.position]
 }
 
 func (p *parser) skipSpace() {
-	for p.position < len(p.input) && isSpace(p.input[p.position]) {
-		p.position++
+	for p.position < len(p.input) {
+		width := spaceWidth(p.input, p.position)
+		if width == 0 {
+			break
+		}
+		p.position += width
 	}
 }
 
@@ -629,12 +655,30 @@ func (p *parser) errorf(format string, arguments ...any) error {
 	return fmt.Errorf("at byte %d: %s", p.position, fmt.Sprintf(format, arguments...))
 }
 
-func isIdentifierByte(value byte) bool {
-	return value == '_' || value == '-' || value == '.' || value >= '0' && value <= '9' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
+func identifierWidth(input string, position int) int {
+	character, width := utf8.DecodeRuneInString(input[position:])
+	if character == utf8.RuneError && width == 1 {
+		return 0
+	}
+	if character < utf8.RuneSelf {
+		value := byte(character)
+		if value == '_' || value == '-' || value == '.' || value >= '0' && value <= '9' || value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z' {
+			return width
+		}
+		return 0
+	}
+	if unicode.Is(unicode.Pattern_Syntax, character) || unicode.Is(unicode.Pattern_White_Space, character) {
+		return 0
+	}
+	return width
 }
 
-func isSpace(value byte) bool {
-	return unicode.IsSpace(rune(value))
+func spaceWidth(input string, position int) int {
+	character, width := utf8.DecodeRuneInString(input[position:])
+	if character == utf8.RuneError && width == 1 || !unicode.IsSpace(character) {
+		return 0
+	}
+	return width
 }
 
 func isPluralSelector(selector string) bool {
@@ -664,12 +708,12 @@ func (message *Message) writeTo(output *strings.Builder, pluralContext bool) {
 		case elementPound:
 			output.WriteByte('#')
 		case elementArgument:
-			element.argument.writeTo(output)
+			element.argument.writeTo(output, pluralContext)
 		}
 	}
 }
 
-func (argument *Argument) writeTo(output *strings.Builder) {
+func (argument *Argument) writeTo(output *strings.Builder, pluralContext bool) {
 	output.WriteByte('{')
 	output.WriteString(argument.Name)
 	if argument.Type == ArgumentSimple {
@@ -698,7 +742,8 @@ func (argument *Argument) writeTo(output *strings.Builder) {
 		}
 		output.WriteString(option.Selector)
 		output.WriteString(" {")
-		option.Message.writeTo(output, argument.Type == ArgumentPlural || argument.Type == ArgumentSelectOrdinal)
+		branchContext := pluralContext || argument.Type == ArgumentPlural || argument.Type == ArgumentSelectOrdinal
+		option.Message.writeTo(output, branchContext)
 		output.WriteByte('}')
 	}
 	output.WriteByte('}')

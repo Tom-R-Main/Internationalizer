@@ -171,6 +171,35 @@ func TestComparePreservesPoundPlaceholders(t *testing.T) {
 	}
 }
 
+func TestComparePreservesPluralPoundThroughNestedSelect(t *testing.T) {
+	source := "{n, plural, other {{gender, select, male {# men} other {# people}}}}"
+	target := "{n, plural, other {{gender, select, male {hommes} other {# personnes}}}}"
+	issues := Compare(source, target, "fr")
+	if !hasCode(issues, CodeSelectorMismatch) {
+		t.Fatalf("Compare issues = %#v, want nested missing pound placeholder", issues)
+	}
+}
+
+func TestCompareSupportsUnicodeArgumentNames(t *testing.T) {
+	source := "Bienvenue, {имя}"
+	target := "Bienvenue"
+	if !LooksLike(source) {
+		t.Fatalf("LooksLike(%q) = false", source)
+	}
+	issues := Compare(source, target, "fr")
+	if !hasCode(issues, CodeArgumentMismatch) {
+		t.Fatalf("Compare issues = %#v, want missing Unicode argument", issues)
+	}
+
+	parsed, err := Parse("{имя, select, admin {Привет, {имя}} other {Здравствуйте, {имя}}}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse(parsed.String()); err != nil {
+		t.Fatalf("Parse(String()) failed: %v", err)
+	}
+}
+
 func TestCompareReportsMalformedSourceAndTarget(t *testing.T) {
 	for name, values := range map[string][2]string{
 		"source": {"{count, plural, one {One}}", "{count, plural, one {Un} other {Autres}}"},
