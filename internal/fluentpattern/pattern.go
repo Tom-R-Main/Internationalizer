@@ -71,7 +71,7 @@ func Analyze(value string) (Analysis, error) {
 		} else {
 			selector, err := parseSelector(expression[:arrow], expression[arrow+2:])
 			if err != nil {
-				return Analysis{}, fmt.Errorf("Fluent selector at byte %d: %w", start, err)
+				return Analysis{}, fmt.Errorf("fluent selector at byte %d: %w", start, err)
 			}
 			analysis.Selectors = append(analysis.Selectors, selector)
 		}
@@ -275,9 +275,10 @@ func variantHeaders(body string) ([]variantHeader, error) {
 				escaped = false
 				continue
 			}
-			if character == '\\' {
+			switch character {
+			case '\\':
 				escaped = true
-			} else if character == quote {
+			case quote:
 				quote = 0
 			}
 			continue
@@ -354,9 +355,10 @@ func matchingBrace(value string, start int) (int, error) {
 				escaped = false
 				continue
 			}
-			if character == '\\' {
+			switch character {
+			case '\\':
 				escaped = true
-			} else if character == quote {
+			case quote:
 				quote = 0
 			}
 			continue
