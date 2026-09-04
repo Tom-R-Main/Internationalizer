@@ -44,6 +44,10 @@ adapter-owned structure signature; formatting offsets are not identity. Fluent
 resources use this boundary for message values, terms, and attributes while
 preserving comments and ordering during serialization.
 
+Markdown uses the preamble and each H2 section as independent units, with
+invisible target-side markers that preserve identity when sections move or are
+inserted.
+
 ## Test locales and rich text
 
 - `pseudo` creates deterministic accented (`en-XA`) and bidirectional (`ar-XB`)
@@ -53,6 +57,15 @@ preserving comments and ordering during serialization.
 - `data-l10n-name` identifies semantic rich-text slots. Translators may reorder
   named slots, but element identity, protected attributes, nesting, and
   contained markup must remain compatible.
+
+## Policy identity
+
+The manifest records style-guide, glossary, and prompt-contract components
+separately. The combined policy hash includes those components and the provider
+settings, but not the rendered prompt text. Refactoring prompt construction
+therefore leaves current translations alone; a semantic prompt change requires
+an explicit prompt-contract version bump. Style guides are read-only inputs and
+are never generated or rewritten by a translation run.
 
 ## Compatibility boundary
 

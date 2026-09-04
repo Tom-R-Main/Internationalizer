@@ -7,6 +7,10 @@
  * Usage:
  *   GOOGLE_AI_STUDIO_API_KEY=... node scripts/generate-style-guides.mjs
  *   GOOGLE_AI_STUDIO_API_KEY=... node scripts/generate-style-guides.mjs --locale ko
+ *   GOOGLE_AI_STUDIO_API_KEY=... node scripts/generate-style-guides.mjs --locale ko --apply
+ *
+ * By default, output goes to .internationalizer/style-guide-candidates for
+ * review. --apply is required to replace tracked translation policy.
  */
 
 import { writeFile, mkdir } from "node:fs/promises";
@@ -154,13 +158,16 @@ async function generateGuide(locale, info) {
     },
   };
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": API_KEY,
+        },
         body: JSON.stringify(body),
       });
 
@@ -200,13 +207,19 @@ async function generateGuide(locale, info) {
 async function main() {
   const args = process.argv.slice(2);
   let filterLocale = null;
+  let apply = false;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--locale" && args[i + 1]) {
       filterLocale = args[i + 1];
     }
+    if (args[i] === "--apply") {
+      apply = true;
+    }
   }
 
-  const outDir = join(process.cwd(), "style-guides");
+  const outDir = apply
+    ? join(process.cwd(), "style-guides")
+    : join(process.cwd(), ".internationalizer", "style-guide-candidates");
   await mkdir(outDir, { recursive: true });
 
   const localesToProcess = filterLocale
@@ -222,7 +235,8 @@ async function main() {
   const entries = Object.entries(localesToProcess);
   let completed = 0;
 
-  console.error(`Generating style guides for ${entries.length} languages (concurrency: ${concurrency})...\n`);
+  const mode = apply ? "tracked guides" : "review candidates";
+  console.error(`Generating ${mode} for ${entries.length} languages (concurrency: ${concurrency})...\n`);
 
   // Process in batches
   for (let i = 0; i < entries.length; i += concurrency) {
@@ -245,6 +259,9 @@ async function main() {
   }
 
   console.error(`\nDone. Generated ${completed}/${entries.length} style guides in ${outDir}/`);
+  if (!apply) {
+    console.error("Review the candidates, then rerun with --apply to change tracked policy.");
+  }
 }
 
 main().catch((err) => {

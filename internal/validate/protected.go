@@ -2,6 +2,7 @@ package validate
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -10,15 +11,33 @@ import (
 )
 
 var (
-	inlineCodeRe = regexp.MustCompile("`+[^`\\n]*`+")
+	htmlTagRe      = regexp.MustCompile(`(?s)<!--.*?-->|</?[A-Za-z][^>]*>`)
+	htmlPathAttrRe = regexp.MustCompile(`(?i)\b(href|src)\s*=\s*("[^"]*"|'[^']*')`)
+	inlineCodeRe   = regexp.MustCompile("`+[^`\\n]*`+")
+	uriSchemeRe    = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*:`)
 )
 
 // ProtectedFindings compares source and target structures that translations
 // must preserve exactly. Multiple damaged structures may yield multiple
 // findings with the same stable code and distinct messages.
 func ProtectedFindings(key, source, target, targetLocale string) []Finding {
+	return protectedFindings(key, source, target, targetLocale, "", "")
+}
+
+// ProtectedDocumentFindings compares Markdown document structure while
+// resolving relative links from each document's own directory. A localized
+// document may add one link back to its source.
+func ProtectedDocumentFindings(key, source, target, targetLocale, sourcePath, targetPath string) []Finding {
+	return protectedFindings(key, source, target, targetLocale, sourcePath, targetPath)
+}
+
+func protectedFindings(key, source, target, targetLocale, sourcePath, targetPath string) []Finding {
 	var findings []Finding
-	icu := usesICUValidation(source, target)
+	document := sourcePath != "" && targetPath != ""
+	icu := false
+	if !document {
+		icu = usesICUValidation(source, target)
+	}
 	if !icu {
 		if mismatch := InterpolationMismatch(key, source, target); mismatch != nil {
 			findings = append(findings, protectedFinding(key, "interpolation variables", mismatch.SourceVars, mismatch.TargetVars))
@@ -34,17 +53,27 @@ func ProtectedFindings(key, source, target, targetLocale string) []Finding {
 		}
 	}
 	checks := []struct {
-		name    string
-		extract func(string) []string
+		name          string
+		extractSource func(string) []string
+		extractTarget func(string) []string
 	}{
-		{"HTML structure", extractHTMLTags},
-		{"fenced code", extractFencedCode},
-		{"inline code", extractInlineCode},
-		{"markdown link destinations", extractLinkDestinations},
+		{"HTML structure", extractHTMLTags, extractHTMLTags},
+		{"fenced code", extractFencedCode, extractFencedCode},
+		{"inline code", extractInlineCode, extractInlineCode},
+		{"markdown link destinations", extractLinkDestinations, extractLinkDestinations},
+	}
+	if document {
+		checks[0].extractSource = func(input string) []string { return extractDocumentHTMLTags(input, sourcePath) }
+		checks[0].extractTarget = func(input string) []string { return extractDocumentHTMLTags(input, targetPath) }
+		checks[3].extractSource = func(input string) []string { return extractDocumentLinkDestinations(input, sourcePath) }
+		checks[3].extractTarget = func(input string) []string {
+			tokens := extractDocumentLinkDestinations(input, targetPath)
+			return removeSourceBacklink(tokens, sourcePath)
+		}
 	}
 	tokenizers := make([]func(string) []string, len(checks))
 	for index, check := range checks {
-		tokenizers[index] = check.extract
+		tokenizers[index] = check.extractSource
 	}
 	preservedKinds := make([]bool, len(checks))
 	if icu {
@@ -55,8 +84,8 @@ func ProtectedFindings(key, source, target, targetLocale string) []Finding {
 		}
 	}
 	for index, check := range checks {
-		sourceTokens := check.extract(source)
-		targetTokens := check.extract(target)
+		sourceTokens := check.extractSource(source)
+		targetTokens := check.extractTarget(target)
 		preserved := equalStrings(sourceTokens, targetTokens)
 		if icu {
 			preserved = preservedKinds[index]
@@ -66,6 +95,62 @@ func ProtectedFindings(key, source, target, targetLocale string) []Finding {
 		}
 	}
 	return findings
+}
+
+func extractDocumentHTMLTags(input, documentPath string) []string {
+	tags := htmlTagRe.FindAllString(input, -1)
+	for index, tag := range tags {
+		tags[index] = htmlPathAttrRe.ReplaceAllStringFunc(tag, func(attribute string) string {
+			match := htmlPathAttrRe.FindStringSubmatch(attribute)
+			if len(match) != 3 {
+				return attribute
+			}
+			value := strings.Trim(match[2], `"'`)
+			return strings.ToLower(match[1]) + `="` + resolveDocumentDestination(value, documentPath) + `"`
+		})
+	}
+	return tags
+}
+
+func extractDocumentLinkDestinations(input, documentPath string) []string {
+	destinations := extractLinkDestinations(input)
+	for index, destination := range destinations {
+		destinations[index] = resolveDocumentDestination(strings.Trim(destination, "<>"), documentPath)
+	}
+	return destinations
+}
+
+func removeSourceBacklink(destinations []string, sourcePath string) []string {
+	want, err := filepath.Abs(sourcePath)
+	if err != nil {
+		want = filepath.Clean(sourcePath)
+	}
+	want = filepath.ToSlash(want)
+	for index, destination := range destinations {
+		if destination == want {
+			return append(destinations[:index:index], destinations[index+1:]...)
+		}
+	}
+	return destinations
+}
+
+func resolveDocumentDestination(destination, documentPath string) string {
+	if destination == "" || strings.HasPrefix(destination, "#") || strings.HasPrefix(destination, "/") || uriSchemeRe.MatchString(destination) {
+		return destination
+	}
+	pathPart := destination
+	suffix := ""
+	if index := strings.IndexAny(pathPart, "?#"); index >= 0 {
+		pathPart, suffix = pathPart[:index], pathPart[index:]
+	}
+	if pathPart == "" {
+		return destination
+	}
+	base, err := filepath.Abs(filepath.Dir(documentPath))
+	if err != nil {
+		base = filepath.Clean(filepath.Dir(documentPath))
+	}
+	return filepath.ToSlash(filepath.Clean(filepath.Join(base, pathPart))) + suffix
 }
 
 func extractHTMLTags(input string) []string {

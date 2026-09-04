@@ -9,14 +9,17 @@ import (
 	"github.com/Tom-R-Main/Internationalizer/internal/state"
 )
 
-const promptPolicyVersion = 1
+const PromptContractVersion = 2
 
 // Resolved is the resolved prompt, provider settings, and stable hash for
 // one target locale and source format.
 type Resolved struct {
-	Prompt string
-	LLM    config.LLM
-	Hash   string
+	Prompt        string
+	LLM           config.LLM
+	Hash          string
+	GuideHash     string
+	GlossaryHash  string
+	PromptVersion int
 }
 
 // Resolve builds the effective translation policy. Callers provide
@@ -45,6 +48,14 @@ func Resolve(cfg *config.Config, targetLocale, format, styleGuide string, terms 
 		prompt = llm.BuildFluentPrompt(canonicalSource, canonicalTarget, styleGuide, terms)
 	}
 
+	guideHash, err := state.HashValue(styleGuide)
+	if err != nil {
+		return Resolved{}, err
+	}
+	glossaryHash, err := state.HashValue(terms)
+	if err != nil {
+		return Resolved{}, err
+	}
 	hash, err := state.HashValue(struct {
 		Version      int    `json:"version"`
 		SourceLocale string `json:"source_locale"`
@@ -53,11 +64,19 @@ func Resolve(cfg *config.Config, targetLocale, format, styleGuide string, terms 
 		Provider     string `json:"provider"`
 		Model        string `json:"model"`
 		Reasoning    string `json:"reasoning_effort"`
-		Prompt       string `json:"prompt"`
-	}{promptPolicyVersion, canonicalSource, canonicalTarget, format, effectiveLLM.Provider, effectiveLLM.Model, llm.EffectiveReasoningEffort(effectiveLLM), prompt})
+		GuideHash    string `json:"guide_hash"`
+		GlossaryHash string `json:"glossary_hash"`
+	}{PromptContractVersion, canonicalSource, canonicalTarget, format, effectiveLLM.Provider, effectiveLLM.Model, llm.EffectiveReasoningEffort(effectiveLLM), guideHash, glossaryHash})
 	if err != nil {
 		return Resolved{}, err
 	}
 
-	return Resolved{Prompt: prompt, LLM: effectiveLLM, Hash: hash}, nil
+	return Resolved{
+		Prompt:        prompt,
+		LLM:           effectiveLLM,
+		Hash:          hash,
+		GuideHash:     guideHash,
+		GlossaryHash:  glossaryHash,
+		PromptVersion: PromptContractVersion,
+	}, nil
 }

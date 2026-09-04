@@ -171,8 +171,8 @@ func BuildDocumentPrompt(sourceLocale, targetLocale, styleGuide string, terms []
 	b.WriteString("- Preserve all Markdown formatting (headings, links, code blocks, lists).\n")
 	b.WriteString("- Preserve interpolation variables exactly: {{variable}}, {variable}, %{variable}.\n")
 	b.WriteString("- Do not translate code blocks or inline code.\n")
-	b.WriteString("- Return a JSON object with the original _content key mapped to the translated document.\n")
-	b.WriteString("- Do not add commentary or keys other than _content.\n")
+	b.WriteString("- Return a JSON object with every original input key mapped to its translated document unit.\n")
+	b.WriteString("- Do not add commentary, omit keys, or add keys that were not present in the input.\n")
 	b.WriteString("- Keep brand names and technical terms in English unless the glossary specifies otherwise.\n")
 
 	if len(terms) > 0 {

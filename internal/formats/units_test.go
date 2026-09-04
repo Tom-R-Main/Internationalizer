@@ -19,12 +19,12 @@ func TestParseUnitsAdaptsLegacyFormatsDeterministically(t *testing.T) {
 	}
 }
 
-func TestMarkdownUsesDocumentUnit(t *testing.T) {
+func TestMarkdownUsesStableSectionUnits(t *testing.T) {
 	units, err := ParseUnits(&MarkdownFormat{}, []byte("# Hello\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(units) != 1 || units[0].ID != "_content" || units[0].Kind != UnitDocument {
+	if len(units) != 1 || units[0].ID != markdownPreambleKey || units[0].Kind != UnitMessage {
 		t.Fatalf("units = %#v", units)
 	}
 }

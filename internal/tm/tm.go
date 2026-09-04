@@ -16,16 +16,19 @@ import (
 
 // Record is a single translation memory entry.
 type Record struct {
-	Bundle     string    `json:"bundle,omitempty"`
-	Key        string    `json:"key"`
-	Source     string    `json:"source"`
-	Target     string    `json:"target"`
-	Locale     string    `json:"locale"`
-	Hash       string    `json:"hash"`
-	PolicyHash string    `json:"policy_hash,omitempty"`
-	Provider   string    `json:"provider,omitempty"`
-	Model      string    `json:"model,omitempty"`
-	Timestamp  time.Time `json:"timestamp"`
+	Bundle        string    `json:"bundle,omitempty"`
+	Key           string    `json:"key"`
+	Source        string    `json:"source"`
+	Target        string    `json:"target"`
+	Locale        string    `json:"locale"`
+	Hash          string    `json:"hash"`
+	PolicyHash    string    `json:"policy_hash,omitempty"`
+	GuideHash     string    `json:"guide_hash,omitempty"`
+	GlossaryHash  string    `json:"glossary_hash,omitempty"`
+	PromptVersion int       `json:"prompt_version,omitempty"`
+	Provider      string    `json:"provider,omitempty"`
+	Model         string    `json:"model,omitempty"`
+	Timestamp     time.Time `json:"timestamp"`
 }
 
 // Stats holds translation memory statistics.
