@@ -41,12 +41,16 @@ func TestTransformsOnlyICULiteralText(t *testing.T) {
 }
 
 func TestBidiUsesIsolateAndPreservesInterpolation(t *testing.T) {
-	target, err := Transform("Hello {name}", Bidi)
+	source := "Hello {name}; read [guide](https://example.com) in <strong>Account</strong>."
+	target, err := Transform(source, Bidi)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(target, "\u2067") || !strings.HasSuffix(target, "\u2069") || !strings.Contains(target, "{name}") {
 		t.Fatalf("target = %q", target)
+	}
+	if findings := validate.ProtectedFindings("message", source, target, "ar-XB"); len(findings) != 0 {
+		t.Fatalf("protected findings = %#v; target = %q", findings, target)
 	}
 }
 

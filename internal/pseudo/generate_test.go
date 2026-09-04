@@ -88,6 +88,36 @@ func TestGenerateDryRunDoesNotWriteArtifactOrManifest(t *testing.T) {
 	}
 }
 
+func TestGenerateWritesRefreshableMarkdownPseudoArtifact(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "README.md")
+	targetTemplate := filepath.Join(dir, "docs", "{locale}.md")
+	manifestPath := filepath.Join(dir, "manifest.json")
+	writeTestFile(t, sourcePath, "# Project\n\n## Install\n\nRead [the guide](docs/guide.md).\n\n## Usage\n\nRun `internationalizer`.\n")
+	cfg := pseudoTestConfig(sourcePath, targetTemplate, manifestPath)
+	cfg.Bundles[0].Format = "markdown"
+
+	if _, err := Generate(cfg, GenerateOptions{Strategy: Accented}); err != nil {
+		t.Fatalf("first Generate() error = %v", err)
+	}
+	if _, err := Generate(cfg, GenerateOptions{Strategy: Accented}); err != nil {
+		t.Fatalf("refresh Generate() error = %v", err)
+	}
+	target, err := os.ReadFile(filepath.Join(dir, "docs", "en-XA.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(target)
+	if !strings.HasPrefix(text, "# [!! ") {
+		t.Fatalf("Markdown pseudo output did not preserve the document heading:\n%s", text)
+	}
+	for _, marker := range []string{"<!-- internationalizer:unit markdown:install -->", "<!-- internationalizer:unit markdown:usage -->"} {
+		if !strings.Contains(text, marker) {
+			t.Fatalf("Markdown pseudo output lacks %q:\n%s", marker, text)
+		}
+	}
+}
+
 func pseudoTestConfig(source, target, manifest string) *config.Config {
 	return &config.Config{
 		SourceLocale:  "en",

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Tom-R-Main/Internationalizer/internal/config"
@@ -85,7 +86,7 @@ func Generate(cfg *config.Config, opts GenerateOptions) ([]GenerateResult, error
 			return nil, err
 		}
 		if existing, readErr := os.ReadFile(targetPath); readErr == nil {
-			if !opts.Force && !pseudoOwnsArtifact(manifest, bundle.ID, canonicalLocale, format, existing) {
+			if !opts.Force && !pseudoOwnsArtifact(manifest, bundle.ID, canonicalLocale, format, sourceData, existing) {
 				return nil, fmt.Errorf("refusing to overwrite %s without --force because it is not a tracked pseudo artifact", targetPath)
 			}
 		} else if !os.IsNotExist(readErr) {
@@ -94,18 +95,27 @@ func Generate(cfg *config.Config, opts GenerateOptions) ([]GenerateResult, error
 
 		pseudoUnits := make([]formats.Unit, len(sourceUnits))
 		for index, unit := range sourceUnits {
-			transformed, err := Transform(unit.Value, opts.Strategy)
+			transformed, err := transformUnit(format, unit, opts.Strategy)
 			if err != nil {
 				return nil, fmt.Errorf("pseudolocalizing bundle %q unit %q: %w", bundle.ID, unit.ID, err)
 			}
 			unit.Value = transformed
 			pseudoUnits[index] = unit
 		}
-		output, err := formats.SerializeUnits(format, pseudoUnits, sourceData)
+		var output []byte
+		if paired, ok := format.(formats.PairedFormat); ok {
+			output, err = paired.SerializeTarget(formats.UnitValues(pseudoUnits), sourceData, sourceData)
+		} else {
+			output, err = formats.SerializeUnits(format, pseudoUnits, sourceData)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("serializing pseudo target %s: %w", targetPath, err)
 		}
 		output = appendOneNewline(output)
+		serializedValues, err := parseTargetValues(format, sourceData, output)
+		if err != nil {
+			return nil, fmt.Errorf("validating pseudo target %s: %w", targetPath, err)
+		}
 		result := GenerateResult{Bundle: bundle.ID, Locale: canonicalLocale, TargetPath: targetPath, Units: len(pseudoUnits), Written: !opts.DryRun}
 		results = append(results, result)
 		if opts.DryRun {
@@ -114,14 +124,18 @@ func Generate(cfg *config.Config, opts GenerateOptions) ([]GenerateResult, error
 		if err := state.WriteFileAtomic(targetPath, output, 0o644); err != nil {
 			return nil, err
 		}
-		for index, sourceUnit := range sourceUnits {
+		for _, sourceUnit := range sourceUnits {
+			targetValue, ok := serializedValues[sourceUnit.ID]
+			if !ok {
+				return nil, fmt.Errorf("validating pseudo target %s: unit %q is missing after serialization", targetPath, sourceUnit.ID)
+			}
 			manifest.Set(state.Entry{
 				Bundle:       bundle.ID,
 				Key:          sourceUnit.ID,
 				Locale:       canonicalLocale,
 				SourceHash:   state.SourceUnitHash(format.Name(), sourceUnit.Value, sourceUnit.Context, sourceUnit.Structure),
 				PolicyHash:   policyHash,
-				TargetHash:   state.TargetHash(pseudoUnits[index].Value),
+				TargetHash:   state.TargetHash(targetValue),
 				Origin:       "pseudo",
 				ReviewStatus: state.ReviewNeedsReview,
 				UpdatedAt:    now,
@@ -143,18 +157,99 @@ func formatForBundle(bundle config.Bundle) (formats.Format, error) {
 	return formats.FormatForFile(bundle.Source)
 }
 
-func pseudoOwnsArtifact(manifest *state.Manifest, bundle, locale string, format formats.Format, data []byte) bool {
-	units, err := formats.ParseUnits(format, data)
-	if err != nil || len(units) == 0 {
+func transformUnit(format formats.Format, unit formats.Unit, strategy Strategy) (string, error) {
+	if format.Name() != "markdown" {
+		return Transform(unit.Value, strategy)
+	}
+	lineEnd := strings.IndexByte(unit.Value, '\n')
+	if lineEnd < 0 {
+		lineEnd = len(unit.Value)
+	}
+	line := strings.TrimSuffix(unit.Value[:lineEnd], "\r")
+	prefixEnd := 0
+	for prefixEnd < len(line) && (line[prefixEnd] == ' ' || line[prefixEnd] == '\t') {
+		prefixEnd++
+	}
+	headingStart := prefixEnd
+	for prefixEnd < len(line) && line[prefixEnd] == '#' && prefixEnd-headingStart < 6 {
+		prefixEnd++
+	}
+	if prefixEnd == headingStart || prefixEnd >= len(line) || (line[prefixEnd] != ' ' && line[prefixEnd] != '\t') {
+		return Transform(unit.Value, strategy)
+	}
+	for prefixEnd < len(line) && (line[prefixEnd] == ' ' || line[prefixEnd] == '\t') {
+		prefixEnd++
+	}
+	heading, err := Transform(line[prefixEnd:], strategy)
+	if err != nil {
+		return "", err
+	}
+	newline := ""
+	body := ""
+	if lineEnd < len(unit.Value) {
+		newline = "\n"
+		if lineEnd > 0 && unit.Value[lineEnd-1] == '\r' {
+			newline = "\r\n"
+		}
+		body = unit.Value[lineEnd+1:]
+	}
+	transformedBody, err := transformPadded(body, strategy)
+	if err != nil {
+		return "", err
+	}
+	return line[:prefixEnd] + heading + newline + transformedBody, nil
+}
+
+func transformPadded(value string, strategy Strategy) (string, error) {
+	start := 0
+	for start < len(value) && strings.ContainsRune(" \t\r\n", rune(value[start])) {
+		start++
+	}
+	end := len(value)
+	for end > start && strings.ContainsRune(" \t\r\n", rune(value[end-1])) {
+		end--
+	}
+	if start == end {
+		return value, nil
+	}
+	transformed, err := Transform(value[start:end], strategy)
+	if err != nil {
+		return "", err
+	}
+	return value[:start] + transformed + value[end:], nil
+}
+
+func pseudoOwnsArtifact(manifest *state.Manifest, bundle, locale string, format formats.Format, source, target []byte) bool {
+	sourceUnits, err := formats.ParseUnits(format, source)
+	if err != nil || len(sourceUnits) == 0 {
 		return false
 	}
-	for _, unit := range units {
-		entry, ok := manifest.Get(bundle, unit.ID, locale)
-		if !ok || entry.Origin != "pseudo" || entry.TargetHash != state.TargetHash(unit.Value) {
+	targetValues, err := parseTargetValues(format, source, target)
+	if err != nil || len(targetValues) != len(sourceUnits) {
+		return false
+	}
+	for _, sourceUnit := range sourceUnits {
+		targetValue, ok := targetValues[sourceUnit.ID]
+		if !ok {
+			return false
+		}
+		entry, ok := manifest.Get(bundle, sourceUnit.ID, locale)
+		if !ok || entry.Origin != "pseudo" || entry.TargetHash != state.TargetHash(targetValue) {
 			return false
 		}
 	}
 	return true
+}
+
+func parseTargetValues(format formats.Format, source, target []byte) (map[string]string, error) {
+	if paired, ok := format.(formats.PairedFormat); ok {
+		return paired.ParseTarget(source, target)
+	}
+	targetUnits, err := formats.ParseUnits(format, target)
+	if err != nil {
+		return nil, err
+	}
+	return formats.UnitValues(targetUnits), nil
 }
 
 func appendOneNewline(data []byte) []byte {

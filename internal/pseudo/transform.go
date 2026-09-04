@@ -151,7 +151,7 @@ func markdownDestinationSpans(input string) []span {
 
 func transformText(input string, strategy Strategy) string {
 	if strategy == Bidi {
-		return reverseRunes(mapRunes(input, bidiRune))
+		return mapRunes(input, bidiRune)
 	}
 	mapped := mapRunes(input, accentedRune)
 	var expanded strings.Builder
@@ -166,14 +166,6 @@ func transformText(input string, strategy Strategy) string {
 
 func mapRunes(input string, transform func(rune) rune) string {
 	return strings.Map(transform, input)
-}
-
-func reverseRunes(input string) string {
-	characters := []rune(input)
-	for left, right := 0, len(characters)-1; left < right; left, right = left+1, right-1 {
-		characters[left], characters[right] = characters[right], characters[left]
-	}
-	return string(characters)
 }
 
 func accentedRune(character rune) rune {
