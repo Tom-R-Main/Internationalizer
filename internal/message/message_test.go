@@ -1,6 +1,7 @@
 package message
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -58,6 +59,39 @@ func TestCompareChecksArgumentsAndSelectors(t *testing.T) {
 	}
 	if !slices.Contains(got, CodeSelectorMismatch) || !slices.Contains(got, CodeArgumentTypeMismatch) {
 		t.Fatalf("Compare issues = %#v", issues)
+	}
+}
+
+func TestPreservedTextTokenKindsCompareCorrespondingPluralBranches(t *testing.T) {
+	tagPattern := regexp.MustCompile(`</?b>`)
+	codePattern := regexp.MustCompile("`[^`]+`")
+	tokenizers := []func(string) []string{
+		func(input string) []string { return tagPattern.FindAllString(input, -1) },
+		func(input string) []string { return codePattern.FindAllString(input, -1) },
+	}
+	source := "{n, plural, one {<b>{name}</b> `go test`} other {<b>{name}</b> `go test`}}"
+	target := "{n, plural, one {<b>{name}</b> `go test`} few {<b>{name}</b> `go test`} many {<b>{name}</b> `go test`} other {<b>{name}</b> `go test`}}"
+	preserved, err := PreservedTextTokenKinds(source, target, "ru", tokenizers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(preserved, []bool{true, true}) {
+		t.Fatalf("PreservedTextTokenKinds() = %v, want both token kinds preserved", preserved)
+	}
+
+	damaged := "{n, plural, one {<b>{name}</b> `go test`} few {{name} `go test`} many {<b>{name}</b> `go test`} other {<b>{name}</b> `go test`}}"
+	preserved, err = PreservedTextTokenKinds(source, damaged, "ru", tokenizers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(preserved, []bool{false, true}) {
+		t.Fatalf("PreservedTextTokenKinds() = %v, want only tag mismatch", preserved)
+	}
+	if _, err := PreservedTextTokenKinds("{broken", target, "ru", tokenizers); err == nil {
+		t.Fatal("PreservedTextTokenKinds accepted malformed source")
+	}
+	if _, err := PreservedTextTokenKinds(source, "{broken", "ru", tokenizers); err == nil {
+		t.Fatal("PreservedTextTokenKinds accepted malformed target")
 	}
 }
 

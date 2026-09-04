@@ -14,7 +14,7 @@ func validateTranslationValue(key, source, target, targetLocale string) error {
 	if strings.TrimSpace(source) != "" && strings.TrimSpace(target) == "" {
 		return fmt.Errorf("blank translation for %q", key)
 	}
-	if findings := validation.ProtectedFindings(key, source, target); len(findings) > 0 {
+	if findings := validation.ProtectedFindings(key, source, target, targetLocale); len(findings) > 0 {
 		return fmt.Errorf("%s for %q", findings[0].Message, key)
 	}
 	if findings := validation.ICUFindings(key, source, target, targetLocale); len(findings) > 0 {

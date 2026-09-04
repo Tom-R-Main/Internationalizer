@@ -213,7 +213,7 @@ func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]s
 			report.Findings = append(report.Findings, ICUFindings(key, sourceValue, targetValue, locale)...)
 		}
 		if opts.Strict {
-			report.Findings = append(report.Findings, ProtectedFindings(key, sourceValue, targetValue)...)
+			report.Findings = append(report.Findings, ProtectedFindings(key, sourceValue, targetValue, locale)...)
 			report.Findings = append(report.Findings, glossaryFindings(key, sourceValue, targetValue, terms)...)
 		}
 		if opts.RequireState {

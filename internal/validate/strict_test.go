@@ -338,9 +338,32 @@ func TestProtectedFindingsUseStableCodeForEveryStructure(t *testing.T) {
 	}
 	for name, values := range tests {
 		t.Run(name, func(t *testing.T) {
-			findings := ProtectedFindings("key", values[0], values[1])
+			findings := ProtectedFindings("key", values[0], values[1], "fr")
 			if len(findings) == 0 || findings[0].Code != CodeProtectedStructureMismatch {
 				t.Fatalf("findings = %#v", findings)
+			}
+		})
+	}
+}
+
+func TestProtectedFindingsCompareICUStructuresPerLocaleBranch(t *testing.T) {
+	tests := map[string]string{
+		"html":        "<strong>Save</strong>",
+		"inline code": "`go test`",
+		"fenced code": "```go\ngo test\n```\n",
+		"link":        "[Guide](https://example.com/guide)",
+	}
+	for name, protected := range tests {
+		t.Run(name, func(t *testing.T) {
+			source := "{n, plural, one {" + protected + "} other {" + protected + "}}"
+			target := "{n, plural, one {" + protected + "} few {" + protected + "} many {" + protected + "} other {" + protected + "}}"
+			if findings := ProtectedFindings("key", source, target, "ru"); len(findings) != 0 {
+				t.Fatalf("valid target-only ICU branches produced findings: %#v", findings)
+			}
+
+			damaged := "{n, plural, one {" + protected + "} few {damaged} many {" + protected + "} other {" + protected + "}}"
+			if findings := ProtectedFindings("key", source, damaged, "ru"); len(findings) == 0 {
+				t.Fatal("damaged target-only ICU branch was accepted")
 			}
 		})
 	}

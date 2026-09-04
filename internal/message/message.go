@@ -164,6 +164,67 @@ func Compare(source, target, targetLocale string) []Issue {
 	return issues
 }
 
+const textTokenArgumentPrefix = "\x00protected:"
+
+// PreservedTextTokenKinds reports which protected literal token kinds match
+// within corresponding ICU branches, including target-only locale branches.
+func PreservedTextTokenKinds(source, target, targetLocale string, tokenizers []func(string) []string) ([]bool, error) {
+	sourceMessage, err := Parse(source)
+	if err != nil {
+		return nil, err
+	}
+	targetMessage, err := Parse(target)
+	if err != nil {
+		return nil, err
+	}
+	addTextTokenArguments(sourceMessage, tokenizers)
+	addTextTokenArguments(targetMessage, tokenizers)
+	preserved := make([]bool, len(tokenizers))
+	for index := range preserved {
+		preserved[index] = true
+	}
+	for _, issue := range compareMessages(sourceMessage, targetMessage, targetLocale, "") {
+		for index := range tokenizers {
+			prefix := fmt.Sprintf("%s%08d:", textTokenArgumentPrefix, index)
+			if strings.HasPrefix(issue.Argument, prefix) {
+				preserved[index] = false
+			}
+		}
+	}
+	return preserved, nil
+}
+
+func addTextTokenArguments(message *Message, tokenizers []func(string) []string) {
+	elementCount := len(message.elements)
+	var direct strings.Builder
+	for _, element := range message.elements[:elementCount] {
+		switch element.kind {
+		case elementText:
+			direct.WriteString(element.text)
+		case elementArgument:
+			direct.WriteByte('{')
+			direct.WriteString(element.argument.Name)
+			direct.WriteByte('}')
+		case elementPound:
+			direct.WriteByte('#')
+		}
+	}
+	for kind, tokenize := range tokenizers {
+		for index, token := range tokenize(direct.String()) {
+			name := fmt.Sprintf("%s%08d:%08d:%s", textTokenArgumentPrefix, kind, index, token)
+			message.elements = append(message.elements, element{kind: elementArgument, argument: &Argument{Name: name}})
+		}
+	}
+	for _, element := range message.elements[:elementCount] {
+		if element.kind != elementArgument {
+			continue
+		}
+		for _, option := range element.argument.Options {
+			addTextTokenArguments(option.Message, tokenizers)
+		}
+	}
+}
+
 func compareMessages(source, target *Message, targetLocale, parentArgument string) []Issue {
 	sourceArguments := immediateArguments(source)
 	targetArguments := immediateArguments(target)
