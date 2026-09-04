@@ -25,7 +25,9 @@ const maxPlanConfigSize = 2 << 20
 // PlanOptions contains explicit user decisions; discovery alone never selects a
 // new bundle or overwrites an existing bundle's runtime profile.
 type PlanOptions struct {
-	AddBundles     []config.Bundle
+	AddBundles []config.Bundle
+	// UpdateTargets changes only explicitly selected existing bundle targets.
+	UpdateTargets  map[string]string
 	Syntax         map[string]message.Syntax
 	ConfirmSources []string
 	SourceLocale   string
@@ -137,7 +139,7 @@ func BuildPlan(root, configPath string, options PlanOptions) (*ConfigPlan, error
 	if !exists && options.SourceLocale == "" {
 		setPlanScalar(content, "source_locale", "en")
 	}
-	if len(options.AddBundles) > 0 || len(options.Syntax) > 0 {
+	if len(options.AddBundles) > 0 || len(options.UpdateTargets) > 0 || len(options.Syntax) > 0 {
 		if len(cfg.Bundles) == 0 && cfg.SourcePath != "" {
 			bundles := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
 			for _, b := range cfg.EffectiveBundles() {
@@ -181,21 +183,43 @@ func BuildPlan(root, configPath string, options PlanOptions) (*ConfigPlan, error
 	additions := append([]config.Bundle(nil), options.AddBundles...)
 	sort.Slice(additions, func(i, j int) bool { return additions[i].ID < additions[j].ID })
 	for _, b := range additions {
+		if _, updating := options.UpdateTargets[b.ID]; updating {
+			return nil, planError("invalid_decision", "bundle cannot be both added and updated: "+b.ID)
+		}
 		if b.ID == "" || seen[b.ID] != nil {
 			return nil, planError("invalid_decision", "added bundle identity must be nonempty and not already configured")
 		}
 		if b.Source == "" || b.Target == "" {
 			return nil, planError("invalid_decision", "added bundles require explicit source and target paths")
 		}
-		if _, err := safePlanPath(root, b.Source); err != nil {
+		if _, err := safePlanBundlePath(root, b.Source, b.ID, "", "source"); err != nil {
 			return nil, err
 		}
-		if _, err := safePlanPath(root, b.Target); err != nil {
+		if _, err := safePlanBundlePath(root, b.Target, b.ID, "", "target"); err != nil {
 			return nil, err
 		}
 		node := planBundleNode(b)
 		bundleNodes.Content = append(bundleNodes.Content, node)
 		seen[b.ID] = node
+	}
+	updateIDs := make([]string, 0, len(options.UpdateTargets))
+	for id := range options.UpdateTargets {
+		updateIDs = append(updateIDs, id)
+	}
+	sort.Strings(updateIDs)
+	for _, id := range updateIDs {
+		if id == "" || seen[id] == nil {
+			return nil, planError("invalid_decision", "target update references an unknown bundle: "+id)
+		}
+		if options.UpdateTargets[id] == "" {
+			return nil, planError("invalid_decision", "target update requires an explicit target path: "+id)
+		}
+		// Validate the replacement, not the old target. Retargeting never reads,
+		// moves, or follows the old catalog, even when it is an unsafe symlink.
+		if _, err := safePlanBundlePath(root, options.UpdateTargets[id], id, "", "target"); err != nil {
+			return nil, err
+		}
+		setPlanScalar(seen[id], "target", options.UpdateTargets[id])
 	}
 	for id, syntax := range options.Syntax {
 		if seen[id] == nil {
@@ -240,7 +264,7 @@ func BuildPlan(root, configPath string, options PlanOptions) (*ConfigPlan, error
 	}
 	paths := map[string]bool{}
 	for _, b := range proposed.EffectiveBundles() {
-		source, err := safePlanPath(root, b.Source)
+		source, err := safePlanBundlePath(root, b.Source, b.ID, "", "source")
 		if err != nil {
 			return nil, err
 		}
@@ -255,7 +279,7 @@ func BuildPlan(root, configPath string, options PlanOptions) (*ConfigPlan, error
 			if err != nil {
 				return nil, planError("invalid_config", err.Error())
 			}
-			if _, err := safePlanPath(root, target); err != nil {
+			if _, err := safePlanBundlePath(root, target, b.ID, locale, "target"); err != nil {
 				return nil, err
 			}
 		}
@@ -339,7 +363,7 @@ func BuildPlan(root, configPath string, options PlanOptions) (*ConfigPlan, error
 	}
 	plan.ProposedYAML = encoded.String()
 	// No-op planning must not rewrite formatting or comments.
-	if exists && len(options.AddBundles) == 0 && len(options.Syntax) == 0 && options.SourceLocale == "" && len(options.TargetLocales) == 0 {
+	if exists && len(options.AddBundles) == 0 && len(options.UpdateTargets) == 0 && len(options.Syntax) == 0 && options.SourceLocale == "" && len(options.TargetLocales) == 0 {
 		plan.ProposedYAML = string(before)
 	}
 	plan.AfterSHA256 = planHash([]byte(plan.ProposedYAML))
@@ -388,12 +412,12 @@ func ApplyPlan(plan *ConfigPlan) (*ApplyReceipt, error) {
 		return nil, planError("invalid_plan", "proposed configuration is invalid: "+err.Error())
 	}
 	for _, b := range cfg.EffectiveBundles() {
-		if _, err := safePlanPath(root, b.Source); err != nil {
+		if _, err := safePlanBundlePath(root, b.Source, b.ID, "", "source"); err != nil {
 			return nil, err
 		}
 		for _, locale := range cfg.TargetLocales {
 			target, _ := b.TargetPath(locale)
-			if _, err := safePlanPath(root, target); err != nil {
+			if _, err := safePlanBundlePath(root, target, b.ID, locale, "target"); err != nil {
 				return nil, err
 			}
 		}
@@ -552,12 +576,15 @@ func safePlanPath(root, path string) (string, error) {
 		path = filepath.Join(root, path)
 	}
 	path = filepath.Clean(path)
+	fail := func(reason string) (string, error) {
+		return "", planError("unsafe_path", fmt.Sprintf("path %q: %s", relativePath(root, path), reason))
+	}
 	if sensitivePlanPath(path) {
-		return "", planError("unsafe_path", "configuration plans do not read or write credential-shaped files")
+		return fail("configuration plans do not read or write credential-shaped files")
 	}
 	rel, err := filepath.Rel(root, path)
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", planError("unsafe_path", "configuration plans may only access files inside the project root")
+		return fail("configuration plans may only access files inside the project root")
 	}
 	current := root
 	parts := strings.Split(rel, string(filepath.Separator))
@@ -568,19 +595,119 @@ func safePlanPath(root, path string) (string, error) {
 			continue
 		}
 		if err != nil {
-			return "", planError("unsafe_path", "cannot inspect a project path safely")
+			return fail("cannot inspect a project path safely")
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return "", planError("unsafe_path", "configuration plans do not follow symlinks")
+			destination, reason := planLinkDestination(root, path)
+			guidance := "; " + reason
+			if destination != "" {
+				guidance = fmt.Sprintf("; review in-root destination %q and explicitly retarget the bundle", destination)
+			}
+			return fail(fmt.Sprintf("configuration plans do not follow symlinks (link component %q)%s", relativePath(root, current), guidance))
 		}
 		if i < len(parts)-1 && !info.IsDir() {
-			return "", planError("unsafe_path", "project path has a non-directory ancestor")
+			return fail("project path has a non-directory ancestor")
 		}
 		if i == len(parts)-1 && !info.Mode().IsRegular() {
-			return "", planError("unsafe_path", "configuration plans require regular files")
+			return fail("configuration plans require regular files")
 		}
 	}
 	return path, nil
+}
+
+func safePlanBundlePath(root, path, bundle, locale, role string) (string, error) {
+	abs, err := safePlanPath(root, path)
+	if err == nil {
+		return abs, nil
+	}
+	context := fmt.Sprintf("bundle %q %s", bundle, role)
+	if locale != "" {
+		context += fmt.Sprintf(" locale %q", locale)
+	}
+	return "", fmt.Errorf("%s: %w", context, err)
+}
+
+// planLinkDestination inspects bounded link metadata only. It never opens
+// catalog contents or inspects an outside-root destination. Suggestions are
+// diagnostics, not plan inputs: explicit replacement targets are independently
+// validated and no proposal depends on the identity of an old target link.
+func planLinkDestination(root, path string) (string, string) {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || !filepath.IsLocal(rel) {
+		return "", "link destination is outside the project root"
+	}
+	pending := strings.Split(rel, string(filepath.Separator))
+	current := root
+	links := 0
+	for steps := 0; len(pending) > 0 && steps < 256; steps++ {
+		part := pending[0]
+		pending = pending[1:]
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			if current == root {
+				return "", "link destination is outside the project root"
+			}
+			current = filepath.Dir(current)
+			continue
+		}
+		next := filepath.Join(current, part)
+		if sensitivePlanPath(next) {
+			return "", "link destination is credential-shaped; no destination inspected"
+		}
+		info, err := os.Lstat(next)
+		if errors.Is(err, os.ErrNotExist) {
+			return "", "link destination is dangling"
+		}
+		if err != nil {
+			return "", "link destination cannot be inspected safely"
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			links++
+			if links > 32 {
+				return "", "link chain is cyclic or exceeds the inspection limit"
+			}
+			target, err := os.Readlink(next)
+			if err != nil || len(target) > 4096 {
+				return "", "link metadata cannot be inspected within limits"
+			}
+			if filepath.VolumeName(target) != "" && !filepath.IsAbs(target) {
+				return "", "link destination has an unsupported volume-relative path"
+			}
+			if filepath.IsAbs(target) {
+				// Do not Clean/Rel the target: link/../file must resolve link
+				// before its parent component, not erase that traversal.
+				target = filepath.FromSlash(target)
+				prefix := root + string(filepath.Separator)
+				if target == root {
+					target = "."
+				} else if strings.HasPrefix(target, prefix) {
+					target = strings.TrimPrefix(target, prefix)
+				} else {
+					return "", "link destination is outside the project root"
+				}
+				current = root
+			}
+			pending = append(strings.Split(target, string(filepath.Separator)), pending...)
+			continue
+		}
+		if len(pending) > 0 && !info.IsDir() {
+			return "", "link destination has a non-directory ancestor"
+		}
+		if len(pending) == 0 && !info.Mode().IsRegular() {
+			return "", "link destination is not a regular catalog file"
+		}
+		current = next
+	}
+	if len(pending) != 0 || current == root {
+		return "", "link metadata exceeds the inspection limit"
+	}
+	info, err := os.Lstat(current)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", "link destination is not a regular catalog file"
+	}
+	return relativePath(root, current), ""
 }
 
 func sensitivePlanPath(path string) bool {

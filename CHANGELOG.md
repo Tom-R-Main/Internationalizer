@@ -1,10 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 - 2026-09-04
 
+- Retarget existing bundles with `config plan --update-bundle ID --target ID=TEMPLATE`, preserving bundle identities and omitted settings.
+- Explain rejected symlink paths with bundle and locale context and, where safely available, an in-project destination to review. Explicit retargeting can repair the configuration without following or changing old links.
 - Reject duplicate JSON object members and flattened-key collisions before catalog content can be lost. These integrity checks apply with or without `--strict`, including LLM translation responses and catalog rewrite operations.
 - Report malformed catalogs during discovery and configuration checks. JSON errors identify conflicting member paths without printing translation values.
 - Refuse ambiguous existing JSON pseudolocale targets even with `--force`; repair the catalog before replacing it.
+- Append missing JSON array entries in numeric index order, including nested and root arrays, while preserving existing object and dotted-key identities.
 
 ## 0.2.0 - 2026-09-04
 

@@ -87,6 +87,42 @@ new local config. Choose an explicit local `--config` path to start fresh.
 
 ## Apply and verify
 
+### Retarget an existing bundle
+
+Use an explicit update decision to change an existing bundle's target template:
+
+```sh
+internationalizer config plan --update-bundle default \
+  --target 'default=tmp/translations-{locale}.json' \
+  --confirm-source tmp/english-keys.json --out repair-plan.json --json
+```
+
+The example assumes that the marketing runtime syntax is already configured.
+If it remains ambiguous, also supply the appropriate `--syntax default=PROFILE`.
+`--update-bundle` requires an existing ID and a matching `--target`; it cannot
+be combined with `--add-bundle` for the same ID. Source, format, syntax, locale,
+provider, and other settings remain unchanged unless separately selected by an
+existing explicit flag. Legacy `source_path` configuration becomes the stable
+`default` bundle when retargeted. Renaming or deleting bundles is not supported.
+
+Review the proposed YAML and diff before applying. Application only updates the
+configuration: it does not copy catalogs, replace links, translate messages, or
+approve translations. A destination with different content must still satisfy
+the existing validation and approval checks.
+
+When a target is a symlink, planning reports the offending path, bundle, and
+locale. A bounded metadata check may suggest an existing in-project destination;
+it does not inspect outside-project contents or select a path automatically.
+External, dangling, cyclic, and unsafe ancestor links remain rejected.
+
+An explicit safe replacement can repair the config even when the old targets
+are unsafe. The replacement is checked independently, so the old link is not
+an input to the saved plan and its identity is not attested by the receipt.
+The saved-plan schema is unchanged. Apply rechecks replacement paths and still
+rejects symlinks introduced after planning; normal drift and lock checks apply.
+
+### Apply a reviewed proposal
+
 ```sh
 internationalizer config apply --plan config-plan.json --no-input --json
 internationalizer config check --json
