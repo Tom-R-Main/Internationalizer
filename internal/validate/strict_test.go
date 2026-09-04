@@ -346,6 +346,38 @@ func TestProtectedFindingsUseStableCodeForEveryStructure(t *testing.T) {
 	}
 }
 
+func TestProtectedDocumentFindingsResolveRelativeLinksAndAllowSourceBacklink(t *testing.T) {
+	source := `<img src="assets/logo.svg"> [License](LICENSE) [Guide](docs/guide.md)`
+	target := `[English](../../README.md) <img src="../../assets/logo.svg"> [Licence](../../LICENSE) [Guide](../guide.md)`
+	findings := ProtectedDocumentFindings(
+		"markdown:preamble",
+		source,
+		target,
+		"fr",
+		"/project/README.md",
+		"/project/docs/i18n/fr.md",
+	)
+	if len(findings) != 0 {
+		t.Fatalf("equivalent document links were rejected: %#v", findings)
+	}
+}
+
+func TestProtectedDocumentFindingsRejectDifferentResolvedLink(t *testing.T) {
+	source := `[Guide](docs/guide.md)`
+	target := `[Guide](../other.md)`
+	findings := ProtectedDocumentFindings(
+		"markdown:preamble",
+		source,
+		target,
+		"fr",
+		"/project/README.md",
+		"/project/docs/i18n/fr.md",
+	)
+	if len(findings) != 1 || findings[0].Code != CodeProtectedStructureMismatch {
+		t.Fatalf("different document link was accepted: %#v", findings)
+	}
+}
+
 func TestProtectedFindingsCompareICUStructuresPerLocaleBranch(t *testing.T) {
 	tests := map[string]string{
 		"html":        "<strong>Save</strong>",

@@ -28,9 +28,11 @@ func TestResolveIsDeterministic(t *testing.T) {
 	if want := cfg.LLMForLocale("fr"); !reflect.DeepEqual(first.LLM, want) {
 		t.Fatalf("effective LLM = %#v, want %#v", first.LLM, want)
 	}
-	const wantHash = "fdfbfa87db81fd2fe792922f343342fe89705e51bb8bee61534a6813f17bf3d1"
-	if first.Hash != wantHash {
-		t.Fatalf("hash = %q, want legacy-compatible %q", first.Hash, wantHash)
+	if first.Hash == "" || first.GuideHash == "" || first.GlossaryHash == "" {
+		t.Fatalf("resolution lacks component hashes: %#v", first)
+	}
+	if first.PromptVersion != policy.PromptContractVersion {
+		t.Fatalf("prompt version = %d, want %d", first.PromptVersion, policy.PromptContractVersion)
 	}
 }
 

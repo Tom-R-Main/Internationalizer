@@ -16,62 +16,62 @@
 </p>
 
 ---
-
+<!-- internationalizer:unit markdown:why-internationalizer -->
 ## Internationalizerを選ぶ理由
 
-一般的なi18nツールの多くは、ランタイムライブラリ（i18next、react-intl）か、キー管理SaaSプラットフォーム（Crowdin、Lokalise）のいずれかです。しかし、実際の翻訳課題を適切に解決できているツールはありません。
+多くのi18nツールは、ランタイムライブラリ（i18next、react-intl）か、キー管理SaaSプラットフォーム（Crowdin、Lokalise）のいずれかです。しかし、実際の翻訳課題を適切に解決できているツールはありません。
 
-- **手動翻訳**は、数言語を超えると対応しきれなくなります
-- **機械翻訳API**（Google翻訳、DeepL）は、専門用語、トーン、UIの規則を無視します
-- **汎用LLM翻訳**は精度が高いものの、用語集やスタイルガイドがなければ出力結果にばらつきが生じます
+- **手動翻訳**は、数言語を超えるとスケールしません
+- **機械翻訳API**（Google翻訳、DeepL）は、独自の用語集、トーン、UIの慣例を無視します
+- **汎用LLM翻訳**はより高精度ですが、用語集やスタイルガイドがなければ出力結果にばらつきが生じます
 
 Internationalizerは異なります。LLM翻訳と以下の機能を組み合わせた**CLIパイプライン**です。
 
 - **言語ごとの用語集** — アプリケーション全体で一貫した用語を適用
 - **言語ごとのスタイルガイド** — トーン、丁寧さの度合い、複数形、タイポグラフィを制御
 - **翻訳メモリ** — 変更のない文字列をスキップし、API呼び出しコストを削減
-- **決定論的な検証** — リリース前にキーの欠落や余分なキー、保護対象の構造の差異、用語集違反、複数形やICUのエラーを検出
-
+- **決定論的な検証** — キーの欠落や余分なキー、保護対象構造の乖離、用語集違反、複数形やICUのエラーをリリース前に検出
+<!-- internationalizer:unit markdown:installation -->
 ## インストール
 
-npmでのインストール
+npmからインストール:
 
 ```bash
 npm install -g internationalizer
 ```
 
-グローバルインストールせずに実行
+またはグローバルインストールなしで実行:
 
 ```bash
 npx internationalizer --help
 ```
 
-npmパッケージは、プラットフォーム固有のオプション依存関係を介して、対応するビルド済みバイナリをnpmから自動的にインストールします。
+npmパッケージは、プラットフォーム固有のオプションの依存関係を介して、一致するビルド済みバイナリをnpmからインストールします。
 
-Goでのインストール
+Goでインストール:
 
 ```bash
 go install github.com/Tom-R-Main/Internationalizer/cmd/internationalizer@latest
 ```
 
-ソースからのビルド
+またはソースからビルド:
 
 ```bash
 git clone https://github.com/Tom-R-Main/Internationalizer.git
 cd Internationalizer
 go build -o internationalizer ./cmd/internationalizer
 ```
-
+<!-- internationalizer:unit markdown:npm-packages -->
 ## npmパッケージ
 
-- Gitタグとnpmパッケージのバージョンは一致している必要があります（例：`v0.1.0`と`0.1.0`）
+- Gitタグとnpmパッケージのバージョンは一致している必要があります（例: `v0.1.0`と`0.1.0`）
 - ルートの`internationalizer`パッケージは、`internationalizer-darwin-arm64`などのプラットフォーム別パッケージに依存します
-- サポート対象のnpmターゲット：macOS arm64/x64、Linux arm64/x64、Windows x64
+- サポート対象のnpmターゲット: macOS arm64/x64、Linux arm64/x64、Windows x64
 - CIでのパッケージ公開には、`NPM_TOKEN`という名前のGitHubシークレットが必要です
-
+<!-- internationalizer:unit markdown:quick-start -->
 ## クイックスタート
 
-1. プロジェクトのルートに設定ファイルを作成します。
+1. プロジェクトのルートに設定ファイルを作成します:
 
 ```yaml
 # .internationalizer.yml
@@ -89,30 +89,30 @@ llm:
   api_key_env: GOOGLE_AI_STUDIO_API_KEY
 ```
 
-2. APIキーを設定します。
+2. APIキーを設定します:
 
 ```bash
 export GOOGLE_AI_STUDIO_API_KEY=your-ai-studio-key
 ```
 
-3. 翻訳対象をプレビューします。
+3. 翻訳対象をプレビューします:
 
 ```bash
 internationalizer translate --dry-run
 ```
 
-4. 翻訳を実行します。
+4. 翻訳を実行します:
 
 ```bash
 internationalizer translate
 ```
 
-5. すべてのロケールを検証します。
+5. すべてのロケールを検証します:
 
 ```bash
 internationalizer validate
 ```
-
+<!-- internationalizer:unit markdown:commands -->
 ## コマンド
 
 ### `translate`
@@ -120,60 +120,60 @@ internationalizer validate
 欠落しているキーや古くなったキーを検出し、LLM経由で翻訳します。
 
 ```bash
-internationalizer translate                    # すべてのロケールを翻訳
-internationalizer translate -l fr              # フランス語のみ翻訳
-internationalizer translate --dry-run          # APIを呼び出さずにプレビュー
-internationalizer translate --adopt-existing   # APIを呼び出さずに既存の翻訳をベースライン化
-internationalizer translate --refresh-policy   # プロンプト/スタイル/モデルの変更により古くなったエントリを更新
-internationalizer translate --batch-size 20    # より小さいバッチサイズで実行
-internationalizer translate --concurrency 2    # 並行呼び出し数を抑えて実行
+internationalizer translate                    # translate all locales
+internationalizer translate -l fr              # translate French only
+internationalizer translate --dry-run          # preview without API calls
+internationalizer translate --adopt-existing   # baseline existing translations without API calls
+internationalizer translate --refresh-policy   # refresh prompt/style/model-stale entries
+internationalizer translate --batch-size 20    # smaller batches
+internationalizer translate --concurrency 2    # fewer parallel calls
 ```
 
-翻訳状態は、欠落（missing）、ソース変更（source-stale）、ポリシー変更（policy-stale）、最新（current）、手動編集済み（manually edited）の状態を個別にレポートするため、手動編集によってソースやポリシーの変更が覆い隠されることはありません。ポリシー変更によって古くなった値はレポートされますが、`--refresh-policy`を指定した場合にのみ再翻訳されます。手動編集された値が自動的に上書きされることは決してありません。レビュー済みの翻訳にマニフェストを導入する場合や、レビュー済みの手動編集を新しいベースラインとして明示的に受け入れる場合は、`--adopt-existing`を使用してください。
+翻訳状態は、欠落（missing）、ソース変更（source-stale）、ポリシー変更（policy-stale）、最新（current）、手動編集済み（manually edited）の状態を個別にレポートするため、手動編集によってソースやポリシーの変更が隠蔽されることはありません。ポリシー変更によって古くなった値はレポートされますが、`--refresh-policy`を指定した場合にのみ再翻訳されます。手動編集された値が自動的に上書きされることは決してありません。レビュー済みの翻訳にマニフェストを導入する場合や、レビュー済みの手動編集を新しいベースラインとして明示的に受け入れる場合は、`--adopt-existing`を使用してください。
 
 ### `validate`
 
-すべてのロケールファイルをソースバンドルと照合します。デフォルトでは、必須ターゲットキーの充足率を検査し、余分なキーを警告として報告します。キーの欠落、補間パラメータの不一致、ICU MessageFormatの構文エラーがある場合は失敗します。
+すべてのロケールファイルをソースバンドルと照合します。デフォルトの検証では構造的な充足率（必要なターゲットキーが存在する割合）を検査し、余分なキーを警告として報告します。キーの欠落、補間パラメータの不一致、無効なICU MessageFormat構造がある場合は失敗します。
 
 ```bash
-internationalizer validate                     # 人間が読みやすい形式で出力
-internationalizer validate --json              # 機械可読なJSON形式で出力
-internationalizer validate -q                  # 終了コードのみ出力
-internationalizer validate --strict             # 翻訳品質に関する規則を適用
-internationalizer validate --require-state      # マニフェストが最新であることを必須化
+internationalizer validate                     # human-readable output
+internationalizer validate --json              # machine-readable JSON
+internationalizer validate -q                  # exit code only
+internationalizer validate --strict             # enforce translation quality rules
+internationalizer validate --require-state      # require current manifest provenance
 ```
 
-`--strict`では翻訳済みの割合も報告します。言語表現としての値がソースと同一の場合、用語集にその値全体についてソースとターゲットが完全に同じ項目がない限り、未翻訳と判定されます。`ignore_case`は考慮されますが、長い値の一部に用語集の語が含まれるだけでは除外されません。strictモードでは、余分なキー、ソースと同一の値、補間・HTML・コード・Markdownリンクの構造変更、用語集違反、設定された複数形の不足があると失敗します。
+`--strict`は翻訳済みの充足率も報告します。言語表現としての値がソースと同一の場合、値全体に対してソースとターゲットが完全に一致する項目が用語集に明示的に登録されていない限り、未翻訳とみなされます。`ignore_case`は考慮されますが、より長い値の一部を用語集の語が占めているだけでは除外対象になりません。strictモードでは、余分なキー、ソースと同一の値、補間・HTML・コード・Markdownリンクの構造変更、用語集違反、設定された複数形の不備がある場合に失敗します。
 
-`--require-state`は、各ターゲットを`.internationalizer.lock`と照合します。キーが未記録の場合や、記録されたソース、翻訳ポリシー、ターゲットのハッシュが古い場合は失敗します。`--strict`と併用できます。
+`--require-state`は、各ターゲットを`.internationalizer.lock`と照合します。キーが未追跡の場合や、記録されたソース、翻訳ポリシー、ターゲットのハッシュが古い場合に失敗します。`--strict`と併用できます。
 
-人間向けレポートとJSONレポートでは、次の安定した検出コードを使用します。
+人間向けおよびJSONレポートでは、安定した検出コードを使用します:
 
 | コード | 意味 |
 | --- | --- |
-| `missing_key` / `extra_key` | ソースとターゲットのキー集合が一致していない |
-| `blank_translation` | 空でないソースに対するstrictモードのターゲットが空 |
-| `source_identical` | 言語表現としての値がstrictモードでもソースと同一 |
-| `protected_structure_mismatch` | 補間、HTML、コード、リンクの構造が変更されている |
+| `missing_key` / `extra_key` | ソースとターゲットのキー集合が異なる |
+| `blank_translation` | 空でないソースに対してstrictモードのターゲットが空 |
+| `source_identical` | strictモードの言語表現の値が未翻訳のまま |
+| `protected_structure_mismatch` | 補間、HTML、コード、リンク構造が変更されている |
 | `glossary_violation` | 承認済みのターゲット用語または異表記が見つからない |
-| `plural_form_missing` | 設定されたロケールの複数形が不足している |
+| `plural_form_missing` | 設定されたロケールの複数形が存在しない |
 | `icu_message_syntax` | ソースまたはターゲットのICUメッセージが不正 |
-| `icu_argument_mismatch` | ICUの引数名、種類、フォーマッタースタイルが一致していない |
-| `icu_selector_mismatch` | セレクターが一致していない、または複数形カテゴリーがターゲットロケールで無効 |
-| `untracked` | ターゲットに対応するマニフェストレコードがない |
-| `source_stale` | 記録後にソースの内容が変更された |
+| `icu_argument_mismatch` | ICUの引数名、型、またはフォーマッタースタイルが異なる |
+| `icu_selector_mismatch` | セレクターが異なる、または複数形カテゴリーがターゲットロケールで無効 |
+| `untracked` | ターゲットに対応するマニフェストレコードが存在しない |
+| `source_stale` | 記録された翻訳の後にソースの内容が変更された |
 | `policy_stale` | 生成プロンプトまたはモデル設定が変更された |
 | `target_modified` | ターゲットの内容がマニフェストの記録と異なる |
 
 ### `detect`
 
-使用中のi18nフレームワークを自動検出し、推奨設定を提案します。
+i18nフレームワークを自動検出し、設定を提案します。
 
 ```bash
 internationalizer detect
 ```
 
-サポート対象：react-i18next、next-intl、vue-i18n、プレーンなJSON、Markdownドキュメント。
+サポート対象: react-i18next、next-intl、vue-i18n、プレーンなJSON、Markdownドキュメント。
 
 ### `glossary`
 
@@ -187,27 +187,27 @@ internationalizer glossary remove --locale fr --source "Dashboard"
 
 ### `tm`
 
-翻訳メモリ（過去に翻訳された文字列を保存するJSONLキャッシュ）を管理します。
+翻訳メモリ（過去に翻訳された文字列のJSONLキャッシュ）を管理します。
 
 ```bash
-internationalizer tm stats                     # レコード数を表示
-internationalizer tm export                    # JSON形式でダンプ出力
-internationalizer tm clear --force             # すべてのレコードを削除
+internationalizer tm stats                     # show record counts
+internationalizer tm export                    # dump as JSON
+internationalizer tm clear --force             # delete all records
 ```
-
+<!-- internationalizer:unit markdown:configuration-reference -->
 ## 設定リファレンス
 
 ```yaml
 # .internationalizer.yml
 
-# ソース言語（デフォルト：en）
+# Source language (default: en)
 source_locale: en
 
-# 翻訳先言語（必須）
+# Languages to translate into (required)
 target_locales: [fr, de, es, ja, yue, zh-CN, zh-TW, ar]
 
-# 1つ以上のソースからターゲットへのマッピング（必須）。
-# {locale}は設定された各ターゲットロケールに置換されます。
+# One or more source-to-target mappings (required).
+# {locale} is replaced with each configured target locale.
 bundles:
   - id: app
     source: locales/en.json
@@ -218,35 +218,35 @@ bundles:
     target: docs/i18n/{locale}.md
     format: markdown
 
-# 下位互換性：source_pathも引き続きlocales/fr.jsonなどの兄弟ファイルへターゲットをマッピングします。
-# 新規プロジェクトではbundlesの使用を推奨します。
+# Backward compatibility: source_path still maps targets to sibling files
+# such as locales/fr.json. Prefer bundles for new projects.
 # source_path: locales/en.json
 
-# LLMプロバイダー設定
+# LLM provider settings
 llm:
-  # プロバイダー：「anthropic」、「openai」、「gemini」、または「openrouter」（デフォルト：gemini）
+  # Provider: "anthropic", "openai", "gemini", or "openrouter" (default: gemini)
   provider: gemini
 
-  # プロバイダーごとのデフォルトモデル名
+  # Model name defaults by provider:
   #   anthropic:  claude-opus-5
-  #   openai:     gpt-5.6-luna（推論強度のデフォルトはmax）
+  #   openai:     gpt-5.6-luna (reasoning effort defaults to max)
   #   gemini:     gemini-3.8-flash
   #   openrouter: deepseek/deepseek-v4-pro-0813
   model: gemini-3.8-flash
 
-  # APIキーを格納した環境変数名
+  # Environment variable containing the API key
   api_key_env: GOOGLE_AI_STUDIO_API_KEY
 
-  # OpenAI互換エンドポイントのベースURL（オプション）
+  # Base URL for OpenAI-compatible endpoints (optional)
   # base_url: https://api.openai.com
 
-  # OpenAI GPT-5シリーズ Responses APIの推論強度
-  # （OpenAIプロバイダーのデフォルト：max）
+  # OpenAI GPT-5-series Responses API reasoning effort
+  # (default: max for the OpenAI provider)
   reasoning_effort: max
 
-  # 特定のターゲットロケールに対するオプションのLLM設定。
-  # グローバル設定と同一のプロバイダーを使用する言語オーバーライドは、未指定の項目にグローバル設定を継承します。
-  # 異なるプロバイダーを指定した場合、未指定の項目にはそのプロバイダーのデフォルト値が適用されます。
+  # Optional LLM settings for individual target locales. An override using the
+  # global provider inherits unspecified global settings. A different provider
+  # uses that provider's defaults for unspecified settings.
   locale_overrides:
     yue:
       provider: openrouter
@@ -261,61 +261,63 @@ llm:
       model: deepseek/deepseek-v4-flash-0731
       api_key_env: OPENROUTER_API_KEY
 
-# LLM呼び出しあたりのキー数（デフォルト：40）
+# Keys per LLM call (default: 40)
 batch_size: 40
 
-# LLMの並行呼び出し数（デフォルト：4）
+# Parallel LLM calls (default: 4)
 concurrency: 4
 
-# ロケール別スタイルガイドMarkdownファイルを格納するディレクトリ（デフォルト：style-guides）
+# Directory containing per-locale style guide Markdown files (default: style-guides)
 style_guides_dir: style-guides
 
-# ロケール別用語集JSONファイルを格納するディレクトリ（デフォルト：glossary）
+# Directory containing per-locale glossary JSON files (default: glossary)
 glossary_dir: glossary
 
-# 翻訳メモリファイルへのパス（デフォルト：.internationalizer/tm.jsonl）
+# Path to translation memory file (default: .internationalizer/tm.jsonl)
 tm_path: .internationalizer/tm.jsonl
 
-# ソース、ポリシー、ターゲット、および来歴情報のバージョン管理状態
-# （デフォルト：.internationalizer.lock。このファイルをコミットしてください）
+# Versioned source, policy, target, and provenance state
+# (default: .internationalizer.lock; commit this file)
 manifest_path: .internationalizer.lock
 
-# 翻訳とstrict検証に関するオプション規則
+# Optional translation and strict-validation rules
 validation:
-  plural_style: i18next-v4 # ターゲットロケールの複数形を生成して検証
+  plural_style: i18next-v4 # generate and validate target-locale plural forms
 ```
 
-ロケール識別子には、`fr`、`pt-BR`、`sr-Latn-RS`など、正しい形式のBCP 47タグを指定してください。正規化すると同一になるターゲットロケールは重複として拒否され、ロケール別のプロバイダーオーバーライドも正規化後の表記で照合されます。上の例では、日本語を含むオーバーライドのないロケールは、グローバルなGemini設定を継承します。
+ロケール識別子には、`fr`、`pt-BR`、`sr-Latn-RS`などの適切な形式のBCP 47タグを使用する必要があります。正規同等なターゲットロケールは重複として拒否され、ロケール固有のプロバイダーオーバーライドも正規同等な表記に一致します。上の例では、オーバーライドのないロケール（日本語を含む）はグローバルのGemini設定を継承します。
 
-ICU MessageFormatの値は構造として解析されます。単純な引数のほか、`select`、`plural`、`selectordinal`、`number`、`date`、`time`に対応し、メッセージのネスト、複数形のオフセット、数値セレクター、`#`も使用できます。検証では、構文、引数の種類とフォーマッタースタイル、複数形のオフセット、selectの分岐、ターゲットロケールのCLDR複数形カテゴリーを確認します。これらの条件を破るプロバイダー出力は、ロケールファイルや翻訳メモリへ書き込まれる前に拒否されます。
+ICU MessageFormatの値は構造的に解析されます。単純な引数、`select`、`plural`、`selectordinal`、`number`、`date`、`time`がサポートされており、ネストされたメッセージ、複数形のオフセット、厳密な数値セレクター、`#`が含まれます。検証では、構文、引数の型とフォーマッタースタイル、複数形のオフセット、select分岐の同一性、ターゲットロケールのCLDR複数形カテゴリーをチェックします。これらの不変条件に違反するプロバイダー出力は、ロケールファイルや翻訳メモリレコードに書き込まれる前に拒否されます。
 
-`i18next-v4`を指定すると、認識されたソースの複数形ファミリーが、翻訳時にターゲットロケールのCLDRカテゴリーへ展開されます。ターゲットにしかないカテゴリーでは、ソースファミリーの`_other`値を翻訳テンプレートとして使用します。strict検証ではターゲットに必要なカテゴリーを必須とし、ターゲットロケールで使用しないソース側だけのカテゴリーは任意として扱います。
-
+`i18next-v4`を使用すると、認識されたソースの複数形ファミリーが翻訳中にターゲットロケールのCLDRカテゴリーに展開されます。ターゲットにのみ存在するカテゴリーは、ソースファミリーの`_other`値を翻訳テンプレートとして使用します。strict検証ではこれらのターゲットカテゴリーが必須となります。ターゲットロケールで使用されないソース固有のカテゴリーは任意です。
+<!-- internationalizer:unit markdown:style-guides -->
 ## スタイルガイド
 
-スタイルガイドは、LLMの翻訳プロンプトに挿入されるMarkdownファイルです。トーン、丁寧さの度合い、タイポグラフィ、その他の言語固有の規則を制御します。
+スタイルガイドは、LLM翻訳プロンプトに挿入されるMarkdownファイルです。トーン、丁寧さの度合い、タイポグラフィ、その他の言語固有の慣例を制御します。
 
 ```
 style-guides/
-  _conventions.md    # すべての言語に共通のルール
-  fr.md              # フランス語固有のルール
-  ja.md              # 日本語固有のルール
-  ar.md              # アラビア語固有のルール
+  _conventions.md    # shared rules for all languages
+  fr.md              # French-specific rules
+  ja.md              # Japanese-specific rules
+  ar.md              # Arabic-specific rules
 ```
 
-### 共通規則 (`_conventions.md`)
+### 共通規則（`_conventions.md`）
 
-すべての言語に適用されるルールを定義します。補間構文、HTMLの保持、文字列種別ごとの規則（ボタン、ラベル、エラーメッセージなど）を指定します。
+すべての言語に適用されるルールを定義します: 補間構文、HTMLの保持、文字列種別の規則（ボタン、ラベル、エラーなど）。
 
-### 言語別ガイド (`{locale}.md`)
+### 言語別ガイド（`{locale}.md`）
 
-言語固有のルールを定義します。丁寧さの度合い（「tu」と「vous」の使い分けなど）、句読点（ギュメ、逆疑問符など）、複数形、日付や数値の書式、用語集を指定します。
+言語固有のルールを定義します: 敬体・常体の使い分け（tuとvousなど）、句読点（ギュメ、逆疑問符）、複数形、日付・数値の書式、用語集。
 
-実際の構成例については、[`examples/react-app/style-guides/`](../../examples/react-app/style-guides/)を参照してください。
+スタイルガイドは永続的なポリシー入力であり、生成された出力ではありません。Internationalizerはこれらを読み取りますが、書き換えることはありません。その内容は用語集やプロンプト規約とは別にハッシュ化されるため、アプリケーションコードの変更によって翻訳が古くなることはありません。ガイドを編集すると、そのロケールは意図的にポリシー再確認の対象としてマークされます。内部プロンプトの文言を変更しても、プロンプト規約のバージョンが変わらない限り、古くなったとはみなされません。
 
+動作例については、[`examples/react-app/style-guides/`](../../examples/react-app/style-guides/)を参照してください。
+<!-- internationalizer:unit markdown:glossary-format -->
 ## 用語集の形式
 
-用語集ファイルは、`{glossary_dir}/{locale}.json`に配置するJSON配列です。
+用語集ファイルは、`{glossary_dir}/{locale}.json`に格納されるJSON配列です:
 
 ```json
 [
@@ -330,78 +332,80 @@ style-guides/
 ]
 ```
 
-`variants`には、承認済みの別表記を指定します。`enforcement`には`error`または`warning`を指定でき、省略時は`error`です。用語は対照表としてLLMプロンプトに挿入され、アプリケーション全体で一貫した翻訳に使用されます。`{"source":"API","target":"API"}`のようにソースとターゲットが完全に同じ項目を登録すると、その値全体はstrict検証の未翻訳判定から除外されます。長い値の一部に`API`が含まれるだけでは除外されません。
-
+`variants`には、承認されたその他のターゲット表現をリストします。`enforcement`には`error`、`warning`を指定でき、省略した場合はデフォルトのerror動作になります。用語は用語集テーブルとしてLLMプロンプトに挿入され、アプリケーション全体での一貫した翻訳を保証します。`{"source":"API","target":"API"}`のような完全一致エントリは、その完全なソース同一値をstrictモードの未翻訳検出から除外します。単に`API`を含むだけのより長い値は除外されません。
+<!-- internationalizer:unit markdown:translation-memory -->
 ## 翻訳メモリ
 
-翻訳メモリはJSONLファイル（1行につき1件のJSONレコード）として保存されます。各レコードには以下の情報が含まれます。
+翻訳メモリはJSONLファイル（1行に1つのJSONレコード）として保存されます。各レコードには以下が含まれます:
 
-- バンドル、キー、ソース値、翻訳後の値、正規化されたターゲットロケール
-- ソースと翻訳ポリシーのハッシュ
-- 翻訳に使用したプロバイダーとモデル
+- バンドル、キー、ソース値、翻訳値、正規化されたターゲットロケール
+- ソース、スタイルガイド、用語集、プロンプト規約、および統合ポリシーの各ハッシュ
+- 翻訳を生成したプロバイダーおよびモデル
 - タイムスタンプ
 
-次回以降の実行時には、ソースとポリシーのハッシュが同じ文字列がLLMを呼び出さずにキャッシュから取得されます。デフォルトの保存先はGit管理から除外された`.internationalizer/`ディレクトリ内なので、ローカルキャッシュとして扱われます。翻訳メモリを意図的に共有する場合は、`tm_path`をGit管理対象のパスへ変更してください。レビュー可能な`.internationalizer.lock`マニフェストは別途バージョン管理されます。
-
+以降の実行では、ソースとポリシーのハッシュが同じ文字列は、LLMを呼び出さずにキャッシュから提供されます。デフォルトのパスは無視対象の`.internationalizer/`ディレクトリ配下にあるため、ローカルキャッシュのまま保持されます。プロジェクトで意図的に翻訳メモリを共有する場合は、`tm_path`を追跡対象の場所に変更してください。レビュー可能な`.internationalizer.lock`マニフェストは個別にバージョン管理されます。
+<!-- internationalizer:unit markdown:supported-formats -->
 ## サポート対象の形式
 
-| 形式 | 拡張子 | 処理モード |
-|--------|-----------|------|
+| 形式 | 拡張子 | モード |
+| --- | --- | --- |
 | JSON | `.json` | キーバリュー（ネスト対応、ドット記法による平坦化） |
-| YAML | `.yml`, `.yaml` | キーバリュー（コメントと記述順序を保持） |
-| Markdown | `.md`, `.mdx` | ドキュメント全体の翻訳 |
+| YAML | `.yml`, `.yaml` | キーバリュー（コメントと順序を保持） |
+| Markdown | `.md`, `.mdx` | プリアンブルおよびH2レベルのセクション |
 
+Markdownターゲットには、H2セクションの前に不可視の`internationalizer:unit`コメントが含まれます。これらの安定したマーカーにより、Internationalizerは関係のないセクションを再翻訳することなく、1つのソースセクションを追加、移動、編集できます。マーカーのない既存のドキュメントには、次回の正常な更新時にマーカーが付与されます。
+<!-- internationalizer:unit markdown:project-type-detection -->
 ## プロジェクトタイプの検出
 
-`internationalizer detect`は、以下の項目を検査してi18n構成を特定します。
+`internationalizer detect`は、以下をチェックしてi18n設定を特定します:
 
-- `package.json`内のreact-i18next、next-intl、vue-i18nなどの依存関係
-- 一般的なロケール配置パターンに一致するディレクトリ構造
+- `package.json`の依存関係におけるreact-i18next、next-intl、vue-i18n
+- 一般的なロケールパターンに一致するディレクトリ構造
 - ファイル拡張子および命名規則
-
+<!-- internationalizer:unit markdown:architecture -->
 ## アーキテクチャ
 
 ```
-cmd/internationalizer/     CLIエントリポイントと各コマンドの定義
+cmd/internationalizer/     CLI entry point and command definitions
 internal/
-  config/                  デフォルト値を適用したYAML設定の読み込み
-  detect/                  プロジェクトタイプの自動検出
-  formats/                 フォーマットパーサー（JSON、YAML、Markdown）
-  glossary/                ロケール別用語集の管理
-  llm/                     LLMプロバイダーのインターフェースと実装
-    anthropic.go           Anthropic Claudeバックエンド
-    openai.go              OpenAI / 互換エンドポイントバックエンド
-    gemini.go              Google AI Studio経由のGeminiバックエンド
-                           OpenRouterはカスタムbase_urlを指定してopenai.goを使用
-  locale/                  BCP 47ロケールIDとCLDR複数形カテゴリー
-  message/                 ICU MessageFormatのパーサーと構造比較
-  policy/                  安定した翻訳ポリシーのハッシュ化
-  state/                   バージョン管理される翻訳マニフェスト
-  styleguide/              スタイルガイドの読み込み
-  tm/                      JSONL形式の翻訳メモリ
-  translate/               翻訳処理のオーケストレーター
-  validate/                ロケールの検証と差分抽出
+  config/                  YAML config loading with defaults
+  detect/                  Project type auto-detection
+  formats/                 Format parsers (JSON, YAML, Markdown)
+  glossary/                Per-locale glossary management
+  llm/                     LLM provider interface + implementations
+    anthropic.go           Anthropic Claude backend
+    openai.go              OpenAI / compatible backend
+    gemini.go              Google Gemini via AI Studio backend
+                           OpenRouter uses openai.go with custom base_url
+  locale/                  BCP 47 identity and CLDR plural categories
+  message/                 ICU MessageFormat parser and structural comparison
+  policy/                  Stable translation-policy hashing
+  state/                   Versioned translation manifest
+  styleguide/              Style guide loader
+  tm/                      JSONL translation memory
+  translate/               Translation orchestrator
+  validate/                Locale validation and diffing
 ```
-
+<!-- internationalizer:unit markdown:comparison-to-alternatives -->
 ## 代替ツールとの比較
 
 | 機能 | Internationalizer | i18next | Crowdin | 汎用LLM |
-|---------|------------------|---------|---------|-------------|
+| --- | --- | --- | --- | --- |
 | LLMを活用した翻訳 | はい | いいえ | 一部対応 | はい |
 | 言語ごとのスタイルガイド | はい | いいえ | いいえ | いいえ |
 | 用語集の強制適用 | はい | いいえ | はい | いいえ |
 | 翻訳メモリ | はい | いいえ | はい | いいえ |
-| CLI / ローカル環境での実行 | はい | 該当なし | いいえ | 手動 |
-| Git管理に適したファイル形式 | はい | はい | 一部対応 | 手動 |
-| SaaSへの依存なし | はい | はい | いいえ | ツールによる |
-| オープンソース（AGPL-3.0） | はい | はい | いいえ | ツールによる |
-
+| CLI / ローカル実行 | はい | 該当なし | いいえ | 手動 |
+| Gitに適したファイル | はい | はい | 一部対応 | 手動 |
+| SaaSへの依存なし | はい | はい | いいえ | 状況による |
+| オープンソース（AGPL-3.0） | はい | はい | いいえ | 状況による |
+<!-- internationalizer:unit markdown:license -->
 ## ライセンス
 
 [AGPL-3.0](../../LICENSE)
 
-依存関係に関する通知は、[THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)を参照してください。
-
+依存関係の通知については、[THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)を参照してください。
+<!-- internationalizer:unit markdown:contributing -->
 ## コントリビューション
 
-開発環境のセットアップおよびガイドラインについては、[CONTRIBUTING.md](../../CONTRIBUTING.md)を参照してください。すべてのコントリビューションにはDCO（開発者原産性証明）への署名（サインオフ）が必須です。
+開発のセットアップとガイドラインについては、[CONTRIBUTING.md](../../CONTRIBUTING.md)を参照してください。すべてのコントリビューションにはDCOのサインオフが必要です。

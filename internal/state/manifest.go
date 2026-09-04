@@ -23,16 +23,19 @@ type Manifest struct {
 
 // Entry records the inputs and output for one bundle key and target locale.
 type Entry struct {
-	Bundle     string    `json:"bundle"`
-	Key        string    `json:"key"`
-	Locale     string    `json:"locale"`
-	SourceHash string    `json:"source_hash"`
-	PolicyHash string    `json:"policy_hash"`
-	TargetHash string    `json:"target_hash"`
-	Origin     string    `json:"origin,omitempty"`
-	Provider   string    `json:"provider,omitempty"`
-	Model      string    `json:"model,omitempty"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	Bundle        string    `json:"bundle"`
+	Key           string    `json:"key"`
+	Locale        string    `json:"locale"`
+	SourceHash    string    `json:"source_hash"`
+	PolicyHash    string    `json:"policy_hash"`
+	GuideHash     string    `json:"guide_hash,omitempty"`
+	GlossaryHash  string    `json:"glossary_hash,omitempty"`
+	PromptVersion int       `json:"prompt_version,omitempty"`
+	TargetHash    string    `json:"target_hash"`
+	Origin        string    `json:"origin,omitempty"`
+	Provider      string    `json:"provider,omitempty"`
+	Model         string    `json:"model,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // New returns an empty manifest using the current schema.

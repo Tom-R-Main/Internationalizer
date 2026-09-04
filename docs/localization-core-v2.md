@@ -31,15 +31,25 @@ framework runtime, translation CDN, or source-rewriting setup command.
 
 ## Review transfer
 
-Manifest v2 will represent generated, needs-review, approved, and manual
-origins explicitly. Only an exact source-and-policy match may inherit approval.
-Fuzzy candidates, changed policy, or changed message structure require review.
+Only an exact source-and-policy match may inherit review state. Fuzzy
+candidates, changed policy, or changed message structure require review.
 
 ## Source units
 
-Structured documents and source adapters will identify a unit by adapter,
+Structured documents and source adapters identify a unit by adapter,
 normalized project-relative path, semantic location, and source structure.
-Formatting offsets alone are not stable identity.
+Formatting offsets alone are not stable identity. Markdown uses the preamble
+and each H2 section as independent units, with invisible target-side markers to
+preserve identity when sections move or are inserted.
+
+## Policy identity
+
+The manifest records style-guide, glossary, and prompt-contract components
+separately. The combined policy hash includes those components and the provider
+settings, but not the rendered prompt text. Refactoring prompt construction
+therefore leaves current translations alone; a semantic prompt change requires
+an explicit prompt-contract version bump. Style guides are read-only inputs and
+are never generated or rewritten by a translation run.
 
 ## Compatibility boundary
 

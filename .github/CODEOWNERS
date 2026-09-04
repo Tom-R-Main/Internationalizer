@@ -1,0 +1,3 @@
+# Translation policy and localized public documentation require owner review.
+/style-guides/ @Tom-R-Main
+/docs/i18n/ @Tom-R-Main
