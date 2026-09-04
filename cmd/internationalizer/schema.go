@@ -41,7 +41,7 @@ func workflowOutputSchema(path string) map[string]any {
 		data["description"] = "Receipt tied to a plan and verified configuration fingerprint; application does not translate catalogs."
 	case "translate":
 		data = schemaForType(reflect.TypeFor[translationJSON]())
-		data["description"] = "Planning, generation, adoption, and partial failure are distinct. Dry-run makes no provider call or file change; generation is not human approval."
+		data["description"] = "Planning, generation, adoption, and persistence are distinct. Partial failure requires retained catalog or manifest updates. Dry-run makes no provider call or file change; generation is not human approval or persistence."
 	case "validate":
 		data = schemaForType(reflect.TypeFor[validationJSON]())
 		data["description"] = "Counts cover the full selected scope before presentation limits. Structural validation and checked human approval are distinct."

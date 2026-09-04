@@ -19,5 +19,6 @@
 ### Fixed
 
 - Explain when automatic syntax detection interprets literal code braces as ICU, and point to explicit runtime profiles. Explicit ICU parsing and placeholder/protected-code validation remain strict.
+- Base partial-failure reporting on persisted catalog or manifest updates, not staged translations from a failed batch sequence. Job results distinguish catalog writes from manifest updates.
 
 See [the configuration workflow and JSON contract](docs/cli-onboarding.md) for setup, migration, and retry behavior.

@@ -82,6 +82,22 @@ func TestWorkflowInputSchemaHasTypedFlags(t *testing.T) {
 	}
 }
 
+func TestTranslationSchemaDistinguishesPersistence(t *testing.T) {
+	schema := workflowOutputSchema("translate")
+	data := schema["properties"].(map[string]any)["data"].(map[string]any)["anyOf"].([]any)[0].(map[string]any)
+	properties := data["properties"].(map[string]any)
+	summary := properties["summary"].(map[string]any)["properties"].(map[string]any)
+	if _, ok := summary["persisted_jobs"]; !ok {
+		t.Fatal("summary schema omits persisted jobs")
+	}
+	job := properties["jobs"].(map[string]any)["items"].(map[string]any)
+	for _, name := range []string{"catalog_written", "manifest_updated"} {
+		if !slices.Contains(job["required"].([]string), name) {
+			t.Errorf("job schema omits required persistence flag %s", name)
+		}
+	}
+}
+
 func TestSchemaTracksOptionalAndNullableJSONFields(t *testing.T) {
 	type payload struct {
 		Name     string   `json:"name"`

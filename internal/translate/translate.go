@@ -34,6 +34,8 @@ type Options struct {
 
 // Result holds the outcome of one bundle and locale. Lifecycle counters are
 // pre-run observations; manual, source-stale, and policy-stale may overlap.
+// KeysTranslated counts validated provider output, even when a later failure
+// prevents its commit. Persistence flags attest only completed local writes.
 type Result struct {
 	BlockedBySource bool     `json:"blocked_by_source"`
 	SourcePath      string   `json:"source_path,omitempty"`
@@ -54,6 +56,8 @@ type Result struct {
 	KeysSkipped     int      `json:"keys_skipped"`
 	Batches         int      `json:"batches"`
 	ProviderCalls   int      `json:"provider_calls"`
+	CatalogWritten  bool     `json:"catalog_written"`
+	ManifestUpdated bool     `json:"manifest_updated"`
 	TokensIn        int      `json:"tokens_in"`
 	TokensOut       int      `json:"tokens_out"`
 	Errors          []string `json:"errors,omitempty"`
@@ -219,6 +223,9 @@ enqueue:
 	if !opts.DryRun && hasUpdates(outputs[:next]) {
 		if err := manifest.Save(cfg.ManifestPath); err != nil {
 			return results, err
+		}
+		for i := range results {
+			results[i].ManifestUpdated = len(outputs[i].updates) > 0
 		}
 	}
 
@@ -525,6 +532,7 @@ func translateLocale(
 			result.Errors = append(result.Errors, err.Error())
 			return jobOutput{result: result}
 		}
+		result.CatalogWritten = true
 		targetExists = true
 	}
 

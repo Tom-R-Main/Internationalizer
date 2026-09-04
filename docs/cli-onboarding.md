@@ -170,3 +170,11 @@ does not establish approval. Translation can report `partial_failure` when some
 work succeeded; inspect its jobs and retained state before retrying. Provider
 requests are not inherently idempotent, even when completed local work can be
 reused.
+
+Translation jobs report `catalog_written` and `manifest_updated` only after
+those writes succeed. `summary.persisted_jobs` counts jobs with either kind of
+retained update; an error yields `partial_failure` only when this count is
+positive. Generated and cached key counters can include staged work discarded
+after a later batch fails. They are not persistence receipts. A catalog write
+can succeed before a later state update fails, so inspect both flags before
+retrying; the catalog, translation memory, and manifest are not one transaction.

@@ -121,8 +121,11 @@ func newTranslateCmd() *cobra.Command {
 						summary.PlannedKeys += result.KeysSkipped
 					}
 					summary.GeneratedKeys += result.KeysTranslated
+					if result.CatalogWritten || result.ManifestUpdated {
+						summary.PersistedJobs++
+					}
 				}
-				if err != nil && summary.GeneratedKeys > 0 {
+				if err != nil && summary.PersistedJobs > 0 {
 					status = "partial_failure"
 				}
 				providerCalled := summaryHasProviderCalls(results)
@@ -172,6 +175,7 @@ type translationSummary struct {
 	BlockedJobs   int `json:"blocked_jobs"`
 	PlannedKeys   int `json:"planned_keys"`
 	GeneratedKeys int `json:"generated_keys"`
+	PersistedJobs int `json:"persisted_jobs"`
 	ErrorCount    int `json:"error_count"`
 }
 
