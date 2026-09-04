@@ -261,15 +261,18 @@ target_locales: [fr, de, es, ja, yue, zh-CN, zh-TW, ar]
 
 # One or more source-to-target mappings (required).
 # {locale} is replaced with each configured target locale.
+message_syntax: auto # default; overridden per bundle below
 bundles:
   - id: app
     source: locales/en.json
     target: locales/{locale}.json
     format: json
+    message_syntax: i18next
   - id: docs
     source: README.md
     target: docs/i18n/{locale}.md
     format: markdown
+    message_syntax: plain
   - id: browser
     source: browser/locales/en-US/browser.ftl
     target: browser/locales/{locale}/browser.ftl
@@ -347,6 +350,35 @@ Locale identifiers must be well-formed BCP 47 tags such as `fr`, `pt-BR`, or
 and locale-specific provider overrides match canonical-equivalent spelling.
 In the example above, locales without an override—including Japanese—inherit
 the global Gemini configuration.
+
+File format and message syntax are separate settings. `message_syntax` accepts
+`auto` (the default), `i18next`, `icu`, or `plain`, globally and per bundle:
+
+- `i18next` protects `{{name}}`, nested paths such as `{{user.name}}`, escaping
+  modifiers such as `{{- name}}`, formatting modifiers, and repeated placeholders.
+  It enables i18next v4 locale-specific plural keys. Other braces are literal;
+  `{.sift,.claude,.codex,.agents}` is not parsed as ICU. Custom interpolation
+  delimiters and nesting expressions are not part of this profile.
+- `icu` always parses the message as ICU, including malformed input that cannot
+  be recognized by automatic detection. Parsing errors never fall back to text.
+- `plain` treats braces as text and does not impose an interpolation grammar.
+- `auto` infers each message's grammar from its source. Select an explicit mode
+  for catalogs mixing prose and code. Fluent resources require `auto` and use
+  their own grammar; Markdown documents cannot select `icu`.
+
+Validation, provider and TM output checks, adoption, pseudolocalization, and
+review approval share the selected syntax. HTML `<code>` contents and Markdown
+code spans are preserved exactly. Explicit syntax profiles enforce protected
+content even without `--strict`; `--strict` additionally checks translation
+quality and glossary rules. Source errors are reported once per bundle with
+`source_path`, `blocked_by_source`, and `blocked_locales` in JSON reports.
+
+The syntax setting is part of the policy hash. This prompt-contract update
+makes previously recorded policies stale, including those using `auto`.
+Use `translate --dry-run` to inspect them, `translate --refresh-policy` to
+regenerate, or `translate --adopt-existing` to validate and record existing
+values under the new policy. Adoption leaves entries needing explicit review.
+Dry-run reports “Would translate” with planned keys and blocked job counts.
 
 ICU MessageFormat values are parsed structurally. Simple arguments, `select`,
 `plural`, `selectordinal`, `number`, `date`, and `time` are supported, including

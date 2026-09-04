@@ -10,6 +10,7 @@ import (
 	"github.com/Tom-R-Main/Internationalizer/internal/config"
 	"github.com/Tom-R-Main/Internationalizer/internal/formats"
 	localeid "github.com/Tom-R-Main/Internationalizer/internal/locale"
+	"github.com/Tom-R-Main/Internationalizer/internal/message"
 	"github.com/Tom-R-Main/Internationalizer/internal/state"
 )
 
@@ -58,17 +59,18 @@ func Generate(cfg *config.Config, opts GenerateOptions) ([]GenerateResult, error
 	if err != nil {
 		return nil, err
 	}
-	policyHash, err := state.HashValue(struct {
-		Version  int      `json:"version"`
-		Strategy Strategy `json:"strategy"`
-	}{Version: 1, Strategy: opts.Strategy})
-	if err != nil {
-		return nil, err
-	}
 
 	results := make([]GenerateResult, 0, len(cfg.EffectiveBundles()))
 	now := time.Now().UTC()
 	for _, bundle := range cfg.EffectiveBundles() {
+		policyHash, err := state.HashValue(struct {
+			Version  int            `json:"version"`
+			Strategy Strategy       `json:"strategy"`
+			Syntax   message.Syntax `json:"message_syntax"`
+		}{Version: 2, Strategy: opts.Strategy, Syntax: bundle.MessageSyntax})
+		if err != nil {
+			return nil, err
+		}
 		format, err := formatForBundle(bundle)
 		if err != nil {
 			return nil, fmt.Errorf("bundle %q format: %w", bundle.ID, err)
@@ -77,7 +79,7 @@ func Generate(cfg *config.Config, opts GenerateOptions) ([]GenerateResult, error
 		if err != nil {
 			return nil, fmt.Errorf("reading bundle %q source %s: %w", bundle.ID, bundle.Source, err)
 		}
-		sourceUnits, err := formats.ParseUnits(format, sourceData)
+		sourceUnits, err := formats.ParseSourceUnits(format, sourceData, bundle.MessageSyntax)
 		if err != nil {
 			return nil, fmt.Errorf("parsing bundle %q source: %w", bundle.ID, err)
 		}
@@ -158,8 +160,11 @@ func formatForBundle(bundle config.Bundle) (formats.Format, error) {
 }
 
 func transformUnit(format formats.Format, unit formats.Unit, strategy Strategy) (string, error) {
+	if unit.Syntax == "" {
+		unit.Syntax = message.ResolveSyntax(format.Name(), message.Auto, unit.Value)
+	}
 	if format.Name() != "markdown" {
-		return Transform(unit.Value, strategy)
+		return TransformSyntax(unit.Value, strategy, unit.Syntax)
 	}
 	lineEnd := strings.IndexByte(unit.Value, '\n')
 	if lineEnd < 0 {
@@ -175,12 +180,12 @@ func transformUnit(format formats.Format, unit formats.Unit, strategy Strategy) 
 		prefixEnd++
 	}
 	if prefixEnd == headingStart || prefixEnd >= len(line) || (line[prefixEnd] != ' ' && line[prefixEnd] != '\t') {
-		return Transform(unit.Value, strategy)
+		return TransformSyntax(unit.Value, strategy, unit.Syntax)
 	}
 	for prefixEnd < len(line) && (line[prefixEnd] == ' ' || line[prefixEnd] == '\t') {
 		prefixEnd++
 	}
-	heading, err := Transform(line[prefixEnd:], strategy)
+	heading, err := TransformSyntax(line[prefixEnd:], strategy, unit.Syntax)
 	if err != nil {
 		return "", err
 	}
@@ -193,14 +198,14 @@ func transformUnit(format formats.Format, unit formats.Unit, strategy Strategy) 
 		}
 		body = unit.Value[lineEnd+1:]
 	}
-	transformedBody, err := transformPadded(body, strategy)
+	transformedBody, err := transformPadded(body, strategy, unit.Syntax)
 	if err != nil {
 		return "", err
 	}
 	return line[:prefixEnd] + heading + newline + transformedBody, nil
 }
 
-func transformPadded(value string, strategy Strategy) (string, error) {
+func transformPadded(value string, strategy Strategy, syntax message.Syntax) (string, error) {
 	start := 0
 	for start < len(value) && strings.ContainsRune(" \t\r\n", rune(value[start])) {
 		start++
@@ -212,7 +217,7 @@ func transformPadded(value string, strategy Strategy) (string, error) {
 	if start == end {
 		return value, nil
 	}
-	transformed, err := Transform(value[start:end], strategy)
+	transformed, err := TransformSyntax(value[start:end], strategy, syntax)
 	if err != nil {
 		return "", err
 	}

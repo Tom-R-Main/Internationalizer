@@ -11,6 +11,7 @@ import (
 
 	"github.com/Tom-R-Main/Internationalizer/internal/fluentpattern"
 	"github.com/Tom-R-Main/Internationalizer/internal/message"
+	"github.com/Tom-R-Main/Internationalizer/internal/protectedtext"
 )
 
 // Strategy selects a pseudolocalization transformation.
@@ -30,6 +31,11 @@ type span struct {
 
 // Transform transforms linguistic text while preserving runtime syntax.
 func Transform(input string, strategy Strategy) (string, error) {
+	return TransformSyntax(input, strategy, message.ResolveSyntax("", message.Auto, input))
+}
+
+// TransformSyntax applies the resolved source grammar without guessing again.
+func TransformSyntax(input string, strategy Strategy, syntax message.Syntax) (string, error) {
 	if strategy != Accented && strategy != Bidi {
 		return "", fmt.Errorf("unsupported pseudolocalization strategy %q", strategy)
 	}
@@ -38,17 +44,18 @@ func Transform(input string, strategy Strategy) (string, error) {
 	}
 	output := ""
 	var err error
-	if fluentpattern.LooksLike(input) {
+	switch syntax {
+	case message.Fluent:
 		output, err = fluentpattern.TransformText(input, transformLiteral)
 		if err != nil {
 			return "", fmt.Errorf("pseudolocalizing Fluent pattern: %w", err)
 		}
-	} else if message.LooksLike(input) {
+	case message.ICU:
 		output, err = message.TransformText(input, transformLiteral)
 		if err != nil {
 			return "", fmt.Errorf("pseudolocalizing ICU message: %w", err)
 		}
-	} else {
+	default:
 		output = transformLiteral(input)
 	}
 	if strategy == Accented {
@@ -88,6 +95,12 @@ func protectedSpans(input string) []span {
 	spans := make([]span, 0)
 	for _, location := range protectedTokenRe.FindAllStringIndex(input, -1) {
 		spans = append(spans, span{start: location[0], end: location[1]})
+	}
+	for _, location := range message.I18nextToken.FindAllStringIndex(input, -1) {
+		spans = append(spans, span{start: location[0], end: location[1]})
+	}
+	for _, location := range protectedtext.HTMLCodeSpans(input) {
+		spans = append(spans, span{start: location.Start, end: location.End})
 	}
 	spans = append(spans, markdownDestinationSpans(input)...)
 	sort.Slice(spans, func(i, j int) bool {

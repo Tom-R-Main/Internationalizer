@@ -15,6 +15,12 @@ framework runtime, translation CDN, or source-rewriting setup command.
 
 ## Message semantics
 
+- Resource format and runtime grammar are distinct. `message_syntax` defaults
+  to `auto` and supports bundle overrides for `i18next`, `icu`, and `plain`.
+  Source units carry the resolved grammar; targets never select their grammar.
+- Explicit ICU always parses, without a parse-error fallback. i18next protects
+  double-brace interpolation and v4 plural-key families; plain text treats
+  braces literally. Fluent resources own their grammar. Markdown is not ICU.
 - ICU messages are parsed structurally rather than treated as brace-shaped
   interpolation strings.
 - Supported arguments are simple interpolation, `select`, `plural`,
@@ -54,6 +60,8 @@ inserted.
   artifacts without a provider or translation-memory lookup.
 - ICU and Fluent runtime expressions remain intact while linguistic text is
   transformed.
+- HTML code element contents and Markdown code spans are protected from
+  translation and pseudolocalization. Approval rechecks protected content.
 - `data-l10n-name` identifies semantic rich-text slots. Translators may reorder
   named slots, but element identity, protected attributes, nesting, and
   contained markup must remain compatible.
@@ -61,7 +69,7 @@ inserted.
 ## Policy identity
 
 The manifest records style-guide, glossary, and prompt-contract components
-separately. The combined policy hash includes those components and the provider
+separately. The combined policy hash includes those components, message syntax, and the provider
 settings, but not the rendered prompt text. Refactoring prompt construction
 therefore leaves current translations alone; a semantic prompt change requires
 an explicit prompt-contract version bump. Style guides are read-only inputs and

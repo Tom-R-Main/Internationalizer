@@ -155,6 +155,9 @@ func entryValidationError(entry state.Entry, reports []validate.Report) error {
 		if len(report.Errors) > 0 {
 			return fmt.Errorf("cannot approve %s/%s/%s: %s", entry.Bundle, entry.Key, entry.Locale, report.Errors[0])
 		}
+		if report.BlockedBySource {
+			return fmt.Errorf("cannot approve %s/%s/%s: source bundle %s is invalid", entry.Bundle, entry.Key, entry.Locale, report.SourcePath)
+		}
 		for _, missing := range report.Missing {
 			if missing == entry.Key {
 				return fmt.Errorf("cannot approve %s/%s/%s: target key is missing", entry.Bundle, entry.Key, entry.Locale)

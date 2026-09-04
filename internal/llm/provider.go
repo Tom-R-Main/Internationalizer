@@ -8,6 +8,7 @@ import (
 
 	"github.com/Tom-R-Main/Internationalizer/internal/config"
 	"github.com/Tom-R-Main/Internationalizer/internal/glossary"
+	"github.com/Tom-R-Main/Internationalizer/internal/message"
 )
 
 // Entry is a source key-value pair to be translated.
@@ -83,9 +84,23 @@ func EffectiveReasoningEffort(cfg config.LLM) string {
 	return cfg.ReasoningEffort
 }
 
+func interpolationRule(syntaxes []message.Syntax) string {
+	if len(syntaxes) > 0 {
+		switch syntaxes[0] {
+		case message.I18next:
+			return "- Message syntax: i18next. Preserve every {{variable}} interpolation, including paths, escaping and formatting modifiers. Other braces are literal text, not ICU.\n"
+		case message.Plain:
+			return "- Message syntax: plain. Braces are literal text, not runtime interpolation or ICU.\n"
+		case message.ICU:
+			return "- Message syntax: ICU MessageFormat. Preserve valid arguments, types, selectors and plural branches.\n"
+		}
+	}
+	return "- Preserve interpolation variables exactly: {{variable}}, {variable}, %{variable}.\n"
+}
+
 // BuildSystemPrompt constructs the system prompt for translation,
 // combining rules, glossary terms, and style guide content.
-func BuildSystemPrompt(sourceLocale, targetLocale, styleGuide string, terms []glossary.Term) string {
+func BuildSystemPrompt(sourceLocale, targetLocale, styleGuide string, terms []glossary.Term, syntax ...message.Syntax) string {
 	var b strings.Builder
 
 	b.WriteString("You are a professional software localizer. Translate the following ")
@@ -97,7 +112,7 @@ func BuildSystemPrompt(sourceLocale, targetLocale, styleGuide string, terms []gl
 
 	b.WriteString("## Rules\n")
 	b.WriteString("- Return a JSON object mapping each key to its translated value.\n")
-	b.WriteString("- Preserve interpolation variables exactly: {{variable}}, {variable}, %{variable}.\n")
+	b.WriteString(interpolationRule(syntax))
 	b.WriteString("- Preserve all HTML tags exactly (<strong>, <br/>, etc.).\n")
 	b.WriteString("- Do not translate the JSON keys, only the values.\n")
 	b.WriteString("- Do not add any explanation or commentary, only output valid JSON.\n")
@@ -158,7 +173,7 @@ func marshalEntries(entries []Entry) ([]byte, error) {
 }
 
 // BuildDocumentPrompt constructs a prompt for whole-document translation (e.g. Markdown).
-func BuildDocumentPrompt(sourceLocale, targetLocale, styleGuide string, terms []glossary.Term) string {
+func BuildDocumentPrompt(sourceLocale, targetLocale, styleGuide string, terms []glossary.Term, syntax ...message.Syntax) string {
 	var b strings.Builder
 
 	b.WriteString("You are a professional translator. Translate the following document from ")
@@ -169,7 +184,7 @@ func BuildDocumentPrompt(sourceLocale, targetLocale, styleGuide string, terms []
 
 	b.WriteString("## Rules\n")
 	b.WriteString("- Preserve all Markdown formatting (headings, links, code blocks, lists).\n")
-	b.WriteString("- Preserve interpolation variables exactly: {{variable}}, {variable}, %{variable}.\n")
+	b.WriteString(interpolationRule(syntax))
 	b.WriteString("- Do not translate code blocks or inline code.\n")
 	b.WriteString("- Return a JSON object with every original input key mapped to its translated document unit.\n")
 	b.WriteString("- Do not add commentary, omit keys, or add keys that were not present in the input.\n")

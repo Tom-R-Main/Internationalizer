@@ -13,6 +13,7 @@ import (
 	"github.com/Tom-R-Main/Internationalizer/internal/formats"
 	"github.com/Tom-R-Main/Internationalizer/internal/glossary"
 	"github.com/Tom-R-Main/Internationalizer/internal/llm"
+	"github.com/Tom-R-Main/Internationalizer/internal/message"
 	"github.com/Tom-R-Main/Internationalizer/internal/policy"
 	"github.com/Tom-R-Main/Internationalizer/internal/state"
 	"github.com/Tom-R-Main/Internationalizer/internal/styleguide"
@@ -34,6 +35,10 @@ type Options struct {
 // Result holds the outcome of one bundle and locale. Lifecycle counters are
 // pre-run observations; manual, source-stale, and policy-stale may overlap.
 type Result struct {
+	BlockedBySource bool
+	SourcePath      string
+	BlockedLocales  []string
+	DryRun          bool
 	Bundle          string
 	Locale          string
 	TargetPath      string
@@ -64,11 +69,12 @@ func (e *RunError) Error() string {
 }
 
 type preparedBundle struct {
-	bundle      config.Bundle
-	format      formats.Format
-	sourceUnits []formats.Unit
-	sourceKeys  map[string]string
-	sourceData  []byte
+	sourceErrors []string
+	bundle       config.Bundle
+	format       formats.Format
+	sourceUnits  []formats.Unit
+	sourceKeys   map[string]string
+	sourceData   []byte
 }
 
 type job struct {
@@ -131,6 +137,13 @@ func Run(ctx context.Context, cfg *config.Config, provider llm.Provider, opts Op
 	if err != nil {
 		return nil, err
 	}
+	for i := range bundles {
+		for _, unit := range bundles[i].sourceUnits {
+			for _, finding := range validation.SyntaxSourceFindings(unit.ID, unit.Value, cfg.SourceLocale, unit.Syntax) {
+				bundles[i].sourceErrors = append(bundles[i].sourceErrors, fmt.Sprintf("source %q: %s", unit.ID, finding.Message))
+			}
+		}
+	}
 	memory, err := tm.Load(cfg.TMPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading TM: %w", err)
@@ -181,7 +194,16 @@ enqueue:
 	workers.Wait()
 
 	results := make([]Result, 0, next)
+	reportedSource := make(map[string]bool)
 	for i := 0; i < next; i++ {
+		if outputs[i].result.BlockedBySource {
+			if reportedSource[outputs[i].result.Bundle] {
+				outputs[i].result.Errors = nil
+			} else {
+				outputs[i].result.BlockedLocales = locales
+				reportedSource[outputs[i].result.Bundle] = true
+			}
+		}
 		results = append(results, outputs[i].result)
 		if !opts.DryRun {
 			for _, update := range outputs[i].updates {
@@ -201,7 +223,7 @@ enqueue:
 
 	failed := 0
 	for _, result := range results {
-		if len(result.Errors) > 0 {
+		if result.BlockedBySource || len(result.Errors) > 0 {
 			failed++
 		}
 	}
@@ -228,7 +250,7 @@ func prepareBundles(bundles []config.Bundle) ([]preparedBundle, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading bundle %q source %s: %w", bundle.ID, bundle.Source, err)
 		}
-		units, err := formats.ParseUnits(format, data)
+		units, err := formats.ParseSourceUnits(format, data, bundle.MessageSyntax)
 		if err != nil {
 			return nil, fmt.Errorf("parsing bundle %q source: %w", bundle.ID, err)
 		}
@@ -250,22 +272,27 @@ func translateLocale(
 ) jobOutput {
 	sourceKeys := bundle.sourceKeys
 	var optionalPluralKeys map[string]struct{}
-	if cfg.Validation.PluralStyle == "i18next-v4" {
+	if bundle.bundle.PluralStyle(cfg.Validation.PluralStyle) == "i18next-v4" {
 		sourceKeys, _, optionalPluralKeys = validation.ExpandI18nextV4Source(bundle.sourceKeys, cfg.SourceLocale, locale)
 		for key := range optionalPluralKeys {
 			delete(sourceKeys, key)
 		}
 	}
-	result := Result{Bundle: bundle.bundle.ID, Locale: locale, KeysTotal: len(sourceKeys)}
-	if bundle.format.Name() != "markdown" {
-		for _, key := range sortedKeys(sourceKeys) {
-			if findings := validation.ICUSourceFindings(key, sourceKeys[key], cfg.SourceLocale); len(findings) > 0 {
-				result.Errors = append(result.Errors, fmt.Sprintf("source %q: %s", key, findings[0].Message))
-			}
-		}
-	}
-	if len(result.Errors) > 0 {
+	result := Result{Bundle: bundle.bundle.ID, Locale: locale, KeysTotal: len(sourceKeys), DryRun: opts.DryRun}
+	if len(bundle.sourceErrors) > 0 {
+		result.BlockedBySource = true
+		result.SourcePath = bundle.bundle.Source
+		result.Errors = bundle.sourceErrors
 		return jobOutput{result: result}
+	}
+	syntaxes := make(map[string]message.Syntax, len(sourceKeys))
+	for _, unit := range bundle.sourceUnits {
+		syntaxes[unit.ID] = unit.Syntax
+	}
+	for key, value := range sourceKeys {
+		if syntaxes[key] == "" {
+			syntaxes[key] = message.ResolveSyntax(bundle.format.Name(), bundle.bundle.MessageSyntax, value)
+		}
 	}
 	targetPath, err := bundle.bundle.TargetPath(locale)
 	if err != nil {
@@ -274,6 +301,7 @@ func translateLocale(
 	}
 	result.TargetPath = targetPath
 	validationContext := valueValidationContext{
+		syntaxes:   syntaxes,
 		document:   bundle.format.Name() == "markdown",
 		sourcePath: bundle.bundle.Source,
 		targetPath: targetPath,
@@ -289,7 +317,7 @@ func translateLocale(
 		result.Errors = append(result.Errors, fmt.Sprintf("style guide: %v", err))
 		return jobOutput{result: result}
 	}
-	translationPolicy, err := policy.Resolve(cfg, locale, bundle.format.Name(), guide, terms)
+	translationPolicy, err := policy.Resolve(cfg, locale, bundle.format.Name(), guide, terms, bundle.bundle.MessageSyntax)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("hashing translation policy: %v", err))
 		return jobOutput{result: result}
@@ -694,6 +722,16 @@ func FormatResults(results []Result, elapsed time.Duration) string {
 	}
 
 	summary := fmt.Sprintf("\nTranslated %d keys across %d bundle/locale jobs (%d from cache) in %s\n", translated, len(results), cached, elapsed.Round(time.Millisecond))
+	if len(results) > 0 && results[0].DryRun {
+		planned, blocked := 0, 0
+		for _, result := range results {
+			planned += result.KeysSkipped
+			if result.BlockedBySource || len(result.Errors) > 0 {
+				blocked++
+			}
+		}
+		summary = fmt.Sprintf("\nWould translate %d keys across %d bundle/locale jobs (%d blocked jobs); dry-run, no changes\n", planned, len(results), blocked)
+	}
 	summary += fmt.Sprintf("Observed before run: %d missing, %d source-stale, %d policy-stale, %d manual edits, %d untracked\n", missing, sourceStale, policyStale, manual, untracked)
 	if tokensIn > 0 || tokensOut > 0 {
 		summary += fmt.Sprintf("Tokens: %d input, %d output\n", tokensIn, tokensOut)
@@ -711,6 +749,9 @@ func FormatResults(results []Result, elapsed time.Duration) string {
 	if hasErrors {
 		summary += "\nErrors:\n"
 		for _, result := range results {
+			if len(result.BlockedLocales) > 0 {
+				summary += fmt.Sprintf("  Source %s blocks %d locales: %s\n", result.SourcePath, len(result.BlockedLocales), strings.Join(result.BlockedLocales, ", "))
+			}
 			for _, runErr := range result.Errors {
 				summary += fmt.Sprintf("  [%s/%s] %s\n", result.Bundle, result.Locale, runErr)
 			}
