@@ -3,3 +3,4 @@
 .internationalizer/
 dist/
 /*.tgz
+/.env

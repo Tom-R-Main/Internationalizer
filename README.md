@@ -28,7 +28,7 @@ Internationalizer is different. It's a **CLI pipeline** that combines LLM transl
 - **Per-language glossaries** — enforce consistent terminology across your app
 - **Per-language style guides** — control tone, formality, pluralization, and typography
 - **Translation memory** — skip unchanged strings, save money on API calls
-- **Key validation** — catch missing translations and interpolation mismatches before they ship
+- **Deterministic validation** — catch missing or extra keys, protected-structure drift, glossary issues, and plural or ICU errors before they ship
 
 ## Installation
 
@@ -115,7 +115,7 @@ internationalizer validate
 
 ### `translate`
 
-Find missing keys and translate them via an LLM.
+Find missing or stale keys and translate them via an LLM.
 
 ```bash
 internationalizer translate                    # translate all locales
@@ -262,10 +262,6 @@ llm:
   # global provider inherits unspecified global settings. A different provider
   # uses that provider's defaults for unspecified settings.
   locale_overrides:
-    ja:
-      provider: openrouter
-      model: sakana/sakana-namazu
-      api_key_env: OPENROUTER_API_KEY
     yue:
       provider: openrouter
       model: deepseek/deepseek-v4-flash-0731
@@ -306,6 +302,8 @@ validation:
 Locale identifiers must be well-formed BCP 47 tags such as `fr`, `pt-BR`, or
 `sr-Latn-RS`. Canonical-equivalent target locales are rejected as duplicates,
 and locale-specific provider overrides match canonical-equivalent spelling.
+In the example above, locales without an override—including Japanese—inherit
+the global Gemini configuration.
 
 ICU MessageFormat values are parsed structurally. Simple arguments, `select`,
 `plural`, `selectordinal`, `number`, `date`, and `time` are supported, including
@@ -371,12 +369,16 @@ findings; it does not exempt a longer value merely containing `API`.
 
 Translation memory is stored as a JSONL file (one JSON record per line). Each record contains:
 
-- The source key and value
-- The translated value
-- A SHA-256 hash of the source value
+- The bundle, key, source value, translated value, and canonical target locale
+- Source and translation-policy hashes
+- The provider and model that produced the translation
 - A timestamp
 
-On subsequent runs, unchanged strings are served from the TM cache without calling the LLM, saving both time and API costs. The TM file is git-friendly and can be committed alongside your locale files.
+On subsequent runs, strings with the same source and policy hashes are served
+from the cache without calling the LLM. The default path is under the ignored
+`.internationalizer/` directory, so it remains a local cache. Set `tm_path` to a
+tracked location if your project intentionally shares translation memory. The
+reviewable `.internationalizer.lock` manifest is versioned separately.
 
 ## Supported Formats
 
@@ -410,6 +412,8 @@ internal/
                            OpenRouter uses openai.go with custom base_url
   locale/                  BCP 47 identity and CLDR plural categories
   message/                 ICU MessageFormat parser and structural comparison
+  policy/                  Stable translation-policy hashing
+  state/                   Versioned translation manifest
   styleguide/              Style guide loader
   tm/                      JSONL translation memory
   translate/               Translation orchestrator
