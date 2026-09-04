@@ -27,6 +27,7 @@ func main() {
 		newTmCmd(),
 		newValidateCmd(),
 		newReviewCmd(),
+		newPseudoCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
