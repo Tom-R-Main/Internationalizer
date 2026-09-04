@@ -11,16 +11,17 @@ func TestManifestRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state", "manifest.json")
 	manifest := New()
 	entry := Entry{
-		Bundle:     "app",
-		Key:        "common.save",
-		Locale:     "fr",
-		SourceHash: SourceHash("json", "Save"),
-		PolicyHash: mustHashValue(t, "policy"),
-		TargetHash: TargetHash("Enregistrer"),
-		Origin:     "provider",
-		Provider:   "openai",
-		Model:      "model",
-		UpdatedAt:  time.Now().UTC().Truncate(time.Second),
+		Bundle:       "app",
+		Key:          "common.save",
+		Locale:       "fr",
+		SourceHash:   SourceHash("json", "Save"),
+		PolicyHash:   mustHashValue(t, "policy"),
+		TargetHash:   TargetHash("Enregistrer"),
+		Origin:       "provider",
+		Provider:     "openai",
+		Model:        "model",
+		ReviewStatus: ReviewNeedsReview,
+		UpdatedAt:    time.Now().UTC().Truncate(time.Second),
 	}
 	manifest.Set(entry)
 	if err := manifest.Save(path); err != nil {
@@ -63,6 +64,34 @@ func TestLoadMigratesLegacyLocaleIdentityInMemory(t *testing.T) {
 	entry, ok := manifest.Get("app", "save", "pt-BR")
 	if !ok || entry.Locale != "pt-BR" {
 		t.Fatalf("legacy entry = %#v, %v; want canonicalized lookup", entry, ok)
+	}
+	if manifest.SchemaVersion != SchemaVersion || entry.ReviewStatus != ReviewNeedsReview || entry.ReviewedAt != nil {
+		t.Fatalf("legacy review state = %#v, schema = %d; want needs_review schema v2", entry, manifest.SchemaVersion)
+	}
+}
+
+func TestApproveRecordsExplicitReviewSeparatelyFromOrigin(t *testing.T) {
+	manifest := New()
+	manifest.Set(Entry{Bundle: "app", Key: "save", Locale: "fr", Origin: "provider"})
+	reviewedAt := time.Date(2026, time.September, 4, 12, 0, 0, 0, time.FixedZone("EDT", -4*60*60))
+
+	approved, err := manifest.Approve("app", "save", "fr", reviewedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.Origin != "provider" || approved.ReviewStatus != ReviewApproved || approved.ReviewedAt == nil || !approved.ReviewedAt.Equal(reviewedAt.UTC()) {
+		t.Fatalf("approved entry = %#v", approved)
+	}
+}
+
+func TestLoadRejectsInvalidApprovedState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	data := []byte(`{"schema_version":2,"translations":{"entry":{"bundle":"app","key":"save","locale":"fr","review_status":"approved","updated_at":"2026-01-01T00:00:00Z"}}}`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load accepted approved state without reviewed_at")
 	}
 }
 

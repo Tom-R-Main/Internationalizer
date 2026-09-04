@@ -20,8 +20,9 @@ import (
 // Options enables validation contracts that are intentionally opt-in during
 // their compatibility period.
 type Options struct {
-	Strict       bool
-	RequireState bool
+	Strict          bool
+	RequireState    bool
+	RequireApproved bool
 }
 
 // Report holds validation results for a single locale. Coverage remains a
@@ -56,6 +57,9 @@ func Validate(cfg *config.Config) ([]Report, error) {
 
 // ValidateWithOptions checks all target locales against the source locale.
 func ValidateWithOptions(cfg *config.Config, opts Options) ([]Report, error) {
+	if opts.RequireApproved {
+		opts.RequireState = true
+	}
 	effectiveConfig := *cfg
 	effectiveConfig.ApplyDefaults()
 	cfg = &effectiveConfig
@@ -217,7 +221,7 @@ func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]s
 			report.Findings = append(report.Findings, glossaryFindings(key, sourceValue, targetValue, terms)...)
 		}
 		if opts.RequireState {
-			report.Findings = append(report.Findings, provenanceFindings(bundle, key, locale, format.Name(), sourceValue, targetValue, policyHash, manifest)...)
+			report.Findings = append(report.Findings, provenanceFindings(bundle, key, locale, format.Name(), sourceValue, targetValue, policyHash, manifest, opts.RequireApproved)...)
 		}
 	}
 
@@ -289,7 +293,7 @@ func missingFinding(key string, requiredPluralKeys map[string]struct{}) Finding 
 	return Finding{Code: CodeMissingKey, Severity: SeverityError, Key: key, Message: "target key is missing"}
 }
 
-func provenanceFindings(bundle, key, locale, format, source, target, policyHash string, manifest *state.Manifest) []Finding {
+func provenanceFindings(bundle, key, locale, format, source, target, policyHash string, manifest *state.Manifest, requireApproved bool) []Finding {
 	recorded, ok := manifest.Get(bundle, key, locale)
 	if !ok {
 		return []Finding{{Code: CodeUntracked, Severity: SeverityError, Key: key, Message: "target has no manifest provenance"}}
@@ -303,6 +307,9 @@ func provenanceFindings(bundle, key, locale, format, source, target, policyHash 
 	}
 	if recorded.TargetHash != state.TargetHash(target) {
 		findings = append(findings, Finding{Code: CodeTargetModified, Severity: SeverityError, Key: key, Message: "target changed after the recorded translation"})
+	}
+	if requireApproved && recorded.ReviewStatus != state.ReviewApproved {
+		findings = append(findings, Finding{Code: CodeNeedsReview, Severity: SeverityError, Key: key, Message: "translation has not been explicitly approved"})
 	}
 	return findings
 }

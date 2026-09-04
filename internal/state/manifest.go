@@ -13,7 +13,20 @@ import (
 	"github.com/Tom-R-Main/Internationalizer/internal/locale"
 )
 
-const SchemaVersion = 1
+const (
+	SchemaVersion       = 2
+	legacySchemaVersion = 1
+)
+
+// ReviewStatus records human approval independently from translation origin.
+// Provider, TM, adoption, and manual provenance answer how a value arrived;
+// review status answers whether a person approved that exact artifact.
+type ReviewStatus string
+
+const (
+	ReviewNeedsReview ReviewStatus = "needs_review"
+	ReviewApproved    ReviewStatus = "approved"
+)
 
 // Manifest is the versioned on-disk translation state.
 type Manifest struct {
@@ -23,16 +36,18 @@ type Manifest struct {
 
 // Entry records the inputs and output for one bundle key and target locale.
 type Entry struct {
-	Bundle     string    `json:"bundle"`
-	Key        string    `json:"key"`
-	Locale     string    `json:"locale"`
-	SourceHash string    `json:"source_hash"`
-	PolicyHash string    `json:"policy_hash"`
-	TargetHash string    `json:"target_hash"`
-	Origin     string    `json:"origin,omitempty"`
-	Provider   string    `json:"provider,omitempty"`
-	Model      string    `json:"model,omitempty"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	Bundle       string       `json:"bundle"`
+	Key          string       `json:"key"`
+	Locale       string       `json:"locale"`
+	SourceHash   string       `json:"source_hash"`
+	PolicyHash   string       `json:"policy_hash"`
+	TargetHash   string       `json:"target_hash"`
+	Origin       string       `json:"origin,omitempty"`
+	Provider     string       `json:"provider,omitempty"`
+	Model        string       `json:"model,omitempty"`
+	ReviewStatus ReviewStatus `json:"review_status"`
+	ReviewedAt   *time.Time   `json:"reviewed_at,omitempty"`
+	UpdatedAt    time.Time    `json:"updated_at"`
 }
 
 // New returns an empty manifest using the current schema.
@@ -58,15 +73,24 @@ func Load(path string) (*Manifest, error) {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return nil, fmt.Errorf("parsing manifest %s: %w", path, err)
 	}
-	if manifest.SchemaVersion != SchemaVersion {
+	if manifest.SchemaVersion != SchemaVersion && manifest.SchemaVersion != legacySchemaVersion {
 		return nil, fmt.Errorf("manifest %s uses schema version %d; supported version is %d", path, manifest.SchemaVersion, SchemaVersion)
 	}
+	legacy := manifest.SchemaVersion == legacySchemaVersion
+	manifest.SchemaVersion = SchemaVersion
 	if manifest.Translations == nil {
 		manifest.Translations = make(map[string]Entry)
 	}
 	canonicalTranslations := make(map[string]Entry, len(manifest.Translations))
 	for _, entry := range manifest.Translations {
 		entry.Locale = canonicalLocaleOrOriginal(entry.Locale)
+		if legacy || entry.ReviewStatus == "" {
+			entry.ReviewStatus = ReviewNeedsReview
+			entry.ReviewedAt = nil
+		}
+		if err := validateReviewState(entry); err != nil {
+			return nil, fmt.Errorf("manifest %s contains invalid review state for %s/%s/%s: %w", path, entry.Bundle, entry.Key, entry.Locale, err)
+		}
 		identity := Identity(entry.Bundle, entry.Key, entry.Locale)
 		if existing, duplicate := canonicalTranslations[identity]; duplicate && existing != entry {
 			return nil, fmt.Errorf("manifest %s contains conflicting entries for %s/%s/%s", path, entry.Bundle, entry.Key, entry.Locale)
@@ -79,6 +103,12 @@ func Load(path string) (*Manifest, error) {
 
 // Save replaces the manifest only after the complete new file is durable.
 func (m *Manifest) Save(path string) error {
+	m.SchemaVersion = SchemaVersion
+	for _, entry := range m.Translations {
+		if err := validateReviewState(entry); err != nil {
+			return fmt.Errorf("saving manifest %s with invalid review state for %s/%s/%s: %w", path, entry.Bundle, entry.Key, entry.Locale, err)
+		}
+	}
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encoding manifest: %w", err)
@@ -98,7 +128,40 @@ func (m *Manifest) Set(entry Entry) {
 		m.Translations = make(map[string]Entry)
 	}
 	entry.Locale = canonicalLocaleOrOriginal(entry.Locale)
+	if entry.ReviewStatus == "" {
+		entry.ReviewStatus = ReviewNeedsReview
+		entry.ReviewedAt = nil
+	}
 	m.Translations[Identity(entry.Bundle, entry.Key, entry.Locale)] = entry
+}
+
+// Approve marks the exact recorded artifact approved at reviewedAt.
+func (m *Manifest) Approve(bundle, key, locale string, reviewedAt time.Time) (Entry, error) {
+	entry, ok := m.Get(bundle, key, locale)
+	if !ok {
+		return Entry{}, fmt.Errorf("translation %s/%s/%s is not tracked", bundle, key, locale)
+	}
+	stamp := reviewedAt.UTC()
+	entry.ReviewStatus = ReviewApproved
+	entry.ReviewedAt = &stamp
+	m.Set(entry)
+	return entry, nil
+}
+
+func validateReviewState(entry Entry) error {
+	switch entry.ReviewStatus {
+	case ReviewNeedsReview:
+		if entry.ReviewedAt != nil {
+			return fmt.Errorf("needs_review entry has reviewed_at")
+		}
+	case ReviewApproved:
+		if entry.ReviewedAt == nil {
+			return fmt.Errorf("approved entry lacks reviewed_at")
+		}
+	default:
+		return fmt.Errorf("unknown review_status %q", entry.ReviewStatus)
+	}
+	return nil
 }
 
 // Identity returns a stable full SHA-256 identifier for a logical translation.

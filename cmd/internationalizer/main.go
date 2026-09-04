@@ -26,6 +26,7 @@ func main() {
 		newGlossaryCmd(),
 		newTmCmd(),
 		newValidateCmd(),
+		newReviewCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {

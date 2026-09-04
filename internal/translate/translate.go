@@ -488,16 +488,17 @@ func translateLocale(
 				continue
 			}
 			updates = append(updates, state.Entry{
-				Bundle:     bundle.bundle.ID,
-				Key:        plan.key,
-				Locale:     locale,
-				SourceHash: plan.sourceHash,
-				PolicyHash: policyHash,
-				TargetHash: state.TargetHash(targetValue),
-				Origin:     origin.kind,
-				Provider:   origin.provider,
-				Model:      origin.model,
-				UpdatedAt:  now,
+				Bundle:       bundle.bundle.ID,
+				Key:          plan.key,
+				Locale:       locale,
+				SourceHash:   plan.sourceHash,
+				PolicyHash:   policyHash,
+				TargetHash:   state.TargetHash(targetValue),
+				Origin:       origin.kind,
+				Provider:     origin.provider,
+				Model:        origin.model,
+				ReviewStatus: state.ReviewNeedsReview,
+				UpdatedAt:    now,
 			})
 		}
 	}

@@ -318,6 +318,49 @@ func TestRequireStateReportsAndClearsBoundProvenanceFindings(t *testing.T) {
 	assertFindingCodes(t, reports[0], CodePolicyStale, CodeSourceStale, CodeTargetModified)
 }
 
+func TestRequireApprovedRequiresExplicitReview(t *testing.T) {
+	cfg := validationConfig(t, map[string]string{"save": "Save"}, map[string]string{"save": "Enregistrer"})
+	resolved, err := policy.Resolve(cfg, "fr", "json", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := state.New()
+	manifest.Set(state.Entry{
+		Bundle:       "default",
+		Key:          "save",
+		Locale:       "fr",
+		SourceHash:   state.SourceHash("json", "Save"),
+		PolicyHash:   resolved.Hash,
+		TargetHash:   state.TargetHash("Enregistrer"),
+		Origin:       "provider",
+		ReviewStatus: state.ReviewNeedsReview,
+		UpdatedAt:    time.Now().UTC(),
+	})
+	if err := manifest.Save(cfg.ManifestPath); err != nil {
+		t.Fatal(err)
+	}
+
+	reports, err := ValidateWithOptions(cfg, Options{RequireApproved: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFindingCodes(t, reports[0], CodeNeedsReview)
+
+	if _, err := manifest.Approve("default", "save", "fr", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := manifest.Save(cfg.ManifestPath); err != nil {
+		t.Fatal(err)
+	}
+	reports, err = ValidateWithOptions(cfg, Options{RequireApproved: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if HasFailures(reports) {
+		t.Fatalf("approved current translation failed: %#v", reports[0])
+	}
+}
+
 func TestRequireStateRejectsMalformedManifest(t *testing.T) {
 	cfg := validationConfig(t, map[string]string{"save": "Save"}, map[string]string{"save": "Enregistrer"})
 	if err := os.WriteFile(cfg.ManifestPath, []byte("{"), 0o644); err != nil {
