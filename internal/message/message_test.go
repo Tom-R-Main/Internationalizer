@@ -190,9 +190,42 @@ func TestParseAllowsApostropheQuotedBracesInFormatterStyles(t *testing.T) {
 	}
 }
 
+func TestLooksLikeTypedICUArgumentAfterPercentLiteral(t *testing.T) {
+	source := "%{amount, number}"
+	if !LooksLike(source) {
+		t.Fatalf("LooksLike(%q) = false", source)
+	}
+	if issues := Compare(source, "%", "fr"); !hasCode(issues, CodeArgumentMismatch) {
+		t.Fatalf("Compare issues = %#v, want missing typed argument", issues)
+	}
+	if LooksLike("%{amount}") {
+		t.Fatal("LooksLike treated legacy percent interpolation as ICU")
+	}
+}
+
+func TestComparePreservesNonPatternWhitespaceInFormatterStyles(t *testing.T) {
+	source := "{d, date,\u00a0yyyy}"
+	target := "{d, date, yyyy}"
+	parsed, err := Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.String(); !strings.Contains(got, "\u00a0yyyy") {
+		t.Fatalf("String() = %q, want NBSP preserved", got)
+	}
+	if issues := Compare(source, target, "fr"); !hasCode(issues, CodeArgumentStyleMismatch) {
+		t.Fatalf("Compare issues = %#v, want formatter style mismatch", issues)
+	}
+}
+
 func TestParseValidatesSelectKeywords(t *testing.T) {
 	if _, err := Parse("{g, select, male,female {x} other {y}}"); err == nil {
 		t.Fatal("Parse accepted punctuation in select keyword")
+	}
+	for _, keyword := range []string{"male-female", "admin.user"} {
+		if _, err := Parse("{g, select, " + keyword + " {x} other {y}}"); err == nil {
+			t.Fatalf("Parse accepted Pattern_Syntax in select keyword %q", keyword)
+		}
 	}
 	if _, err := Parse("{g, select, мужчина {x} other {y}}"); err != nil {
 		t.Fatalf("Parse rejected Unicode select keyword: %v", err)

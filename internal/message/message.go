@@ -97,7 +97,7 @@ func Parse(input string) (*Message, error) {
 // the other interpolation syntaxes Internationalizer already supports.
 func LooksLike(input string) bool {
 	for index := 0; index < len(input); index++ {
-		if input[index] != '{' || (index > 0 && (input[index-1] == '{' || input[index-1] == '%')) || (index+1 < len(input) && input[index+1] == '{') {
+		if input[index] != '{' || (index > 0 && input[index-1] == '{') || (index+1 < len(input) && input[index+1] == '{') {
 			continue
 		}
 		cursor := index + 1
@@ -125,6 +125,9 @@ func LooksLike(input string) bool {
 				break
 			}
 			cursor += width
+		}
+		if index > 0 && input[index-1] == '%' && cursor < len(input) && input[cursor] == '}' {
+			continue
 		}
 		if cursor >= len(input) || input[cursor] == '}' || input[cursor] == ',' {
 			return true
@@ -661,7 +664,9 @@ func (p *parser) parseArgument(pluralContext bool) (*Argument, error) {
 				}
 				p.position++
 			}
-			argument.Style = strings.TrimSpace(p.input[styleStart:p.position])
+			argument.Style = strings.TrimFunc(p.input[styleStart:p.position], func(character rune) bool {
+				return unicode.Is(unicode.Pattern_White_Space, character)
+			})
 			if argument.Style == "" {
 				return nil, p.errorf("%s style must not be empty", argumentType)
 			}
@@ -710,7 +715,7 @@ func (p *parser) parseArgument(pluralContext bool) (*Argument, error) {
 			return nil, p.errorf("duplicate selector %q for argument %q", selector, name)
 		}
 		if argumentType == ArgumentSelect {
-			if !isIdentifier(selector) {
+			if !isSelectKeyword(selector) {
 				return nil, p.errorf("invalid select keyword %q", selector)
 			}
 		} else if !isPluralSelector(selector) {
@@ -806,16 +811,14 @@ func identifierWidth(input string, position int) int {
 	return width
 }
 
-func isIdentifier(input string) bool {
-	if input == "" {
+func isSelectKeyword(input string) bool {
+	if input == "" || !utf8.ValidString(input) {
 		return false
 	}
-	for position := 0; position < len(input); {
-		width := identifierWidth(input, position)
-		if width == 0 {
+	for _, character := range input {
+		if unicode.Is(unicode.Pattern_Syntax, character) || unicode.Is(unicode.Pattern_White_Space, character) {
 			return false
 		}
-		position += width
 	}
 	return true
 }
