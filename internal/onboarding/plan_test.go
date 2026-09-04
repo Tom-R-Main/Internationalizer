@@ -1,6 +1,7 @@
 package onboarding
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -283,6 +284,80 @@ func TestPlanAllowsIntrinsicFluentGrammar(t *testing.T) {
 	}
 	if _, err = ApplyPlan(p); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestApplyFailurePreservesConfigAndReleasesOwnedLock(t *testing.T) {
+	for _, drift := range []string{"source", "config", "runtime"} {
+		t.Run(drift, func(t *testing.T) {
+			root := planFixture(t)
+			p, err := BuildPlan(root, "", planOptions())
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch drift {
+			case "source":
+				planWrite(t, root, "tmp/en.json", `{"hello":"Changed"}`)
+			case "config":
+				planWrite(t, root, ".internationalizer.yml", "# concurrent edit\nsource_locale: en\ntarget_locales: [fr]\nsource_path: tmp/en.json\n")
+			case "runtime":
+				planWrite(t, root, "web/package.json", `{"dependencies":{"i18next-icu":"1"}}`)
+			}
+			configPath := filepath.Join(root, ".internationalizer.yml")
+			before, err := os.ReadFile(configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			receipt, err := ApplyPlan(p)
+			assertPlanCode(t, err, "stale_plan")
+			if receipt != nil {
+				t.Fatalf("failed application returned a success receipt: %+v", receipt)
+			}
+			after, err := os.ReadFile(configPath)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("failed application changed existing config: %v", err)
+			}
+			if _, err := os.Lstat(configPath + ".apply-lock"); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("owned lock remains after failure: %v", err)
+			}
+			artifacts, err := filepath.Glob(filepath.Join(root, ".internationalizer-apply-*"))
+			if err != nil || len(artifacts) != 0 {
+				t.Fatalf("temporary replacements remain: %v, %v", artifacts, err)
+			}
+		})
+	}
+}
+
+func TestApplyPreservesPermissionsAndAttestsExactReadback(t *testing.T) {
+	root := planFixture(t)
+	configPath := filepath.Join(root, ".internationalizer.yml")
+	if err := os.Chmod(configPath, 0640); err != nil {
+		t.Fatal(err)
+	}
+	p, err := BuildPlan(root, "", planOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := ApplyPlan(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != p.ProposedYAML || planHash(data) != receipt.ConfigSHA256 || receipt.PlanID != p.ID || !receipt.ObservationsRevalidated {
+		t.Fatalf("receipt does not attest committed bytes and evidence: %+v", receipt)
+	}
+	info, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0640 {
+		t.Fatalf("existing config permissions changed: %v", info.Mode().Perm())
+	}
+	if _, err := os.Lstat(configPath + ".apply-lock"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("owned lock remains after success: %v", err)
 	}
 }
 
