@@ -179,7 +179,7 @@ func needsCurrentCardinalOne(tag language.Tag) bool {
 	base, _ := tag.Base()
 	// These languages postdate x/text's embedded plural tables.
 	switch base.String() {
-	case "lld", "scn", "vec":
+	case "bal", "lld", "scn", "vec":
 		return true
 	default:
 		return false
@@ -205,5 +205,10 @@ func needsCurrentOrdinalMany(tag language.Tag) bool {
 
 func needsCurrentOrdinalOne(tag language.Tag) bool {
 	base, _ := tag.Base()
-	return base.String() == "kw"
+	switch base.String() {
+	case "bal", "kw":
+		return true
+	default:
+		return false
+	}
 }

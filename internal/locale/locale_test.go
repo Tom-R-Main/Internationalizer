@@ -71,6 +71,7 @@ func TestSupportedLocalesMatchCLDR49CategorySets(t *testing.T) {
 		ordinal  []string
 	}{
 		"ar":    {[]string{"zero", "one", "two", "few", "many", "other"}, []string{"other"}},
+		"bal":   {[]string{"one", "other"}, []string{"one", "other"}},
 		"bn":    {[]string{"one", "other"}, []string{"one", "two", "few", "many", "other"}},
 		"cs":    {[]string{"one", "few", "many", "other"}, []string{"other"}},
 		"da":    {[]string{"one", "other"}, []string{"other"}},

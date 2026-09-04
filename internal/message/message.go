@@ -641,8 +641,22 @@ func (p *parser) parseArgument(pluralContext bool) (*Argument, error) {
 	if argumentType == ArgumentNumber || argumentType == ArgumentDate || argumentType == ArgumentTime {
 		if p.consume(',') {
 			styleStart := p.position
-			for p.position < len(p.input) && p.input[p.position] != '}' {
-				if p.input[p.position] == '{' {
+			quoted := false
+			for p.position < len(p.input) {
+				current := p.input[p.position]
+				if current == '\'' {
+					if p.position+1 < len(p.input) && p.input[p.position+1] == '\'' {
+						p.position += 2
+						continue
+					}
+					quoted = !quoted
+					p.position++
+					continue
+				}
+				if current == '}' && !quoted {
+					break
+				}
+				if current == '{' && !quoted {
 					return nil, p.errorf("unexpected opening brace in %s style", argumentType)
 				}
 				p.position++

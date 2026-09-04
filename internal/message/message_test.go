@@ -179,6 +179,17 @@ func TestParseUsesICUPatternWhitespace(t *testing.T) {
 	}
 }
 
+func TestParseAllowsApostropheQuotedBracesInFormatterStyles(t *testing.T) {
+	input := "{d, date, '{'yyyy'}'}"
+	parsed, err := Parse(input)
+	if err != nil {
+		t.Fatalf("Parse rejected quoted formatter braces: %v", err)
+	}
+	if got := parsed.String(); got != "{d, date, '{'yyyy'}'}" {
+		t.Fatalf("String() = %q, want quoted formatter style preserved", got)
+	}
+}
+
 func TestParseValidatesSelectKeywords(t *testing.T) {
 	if _, err := Parse("{g, select, male,female {x} other {y}}"); err == nil {
 		t.Fatal("Parse accepted punctuation in select keyword")
