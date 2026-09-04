@@ -220,13 +220,44 @@ Human and JSON reports use stable finding codes:
 
 ### `detect`
 
-Auto-detect the i18n framework and suggest a configuration.
+Inspect existing configuration and discover catalogs, including nested apps.
 
 ```bash
 internationalizer detect
+internationalizer detect --json
+internationalizer config check --json
 ```
 
-Supports: react-i18next, next-intl, vue-i18n, vanilla JSON, markdown docs.
+Discovery reports runtime evidence, uncovered catalogs, and unresolved choices.
+i18next dependencies suggest `message_syntax: i18next`; ICU integration evidence
+requires a runtime decision. JSON is a storage format, not a message grammar.
+
+### `config plan` and `config apply`
+
+Create a proposal, review its diff, then explicitly apply the saved plan:
+
+```bash
+internationalizer config plan --json \
+  --add-bundle web=exf-app/web/src/i18n/locales/en.json \
+  --syntax web=i18next --syntax default=i18next \
+  --confirm-source tmp/english-keys.json --out config-plan.json
+internationalizer config apply --plan config-plan.json --no-input --json
+internationalizer translate --dry-run --json
+```
+
+This example assumes an existing `source_path: tmp/english-keys.json` marketing
+config. Select paths and syntax for your own runtime; discovery does not decide
+which artifacts ship. Plan/apply preserves existing provider settings, locale
+overrides, glossary paths, and bundle IDs. It rejects stale plans and recognizes
+an already-applied configuration. `--no-input` disables prompts; it does not
+authorize additional actions.
+
+See [the onboarding and JSON contract](docs/cli-onboarding.md) for initial setup,
+filters, error codes, and retry behavior. `internationalizer commands --json`
+describes installed workflow entry points and their effects.
+
+JSON compatibility: `validate --json` now emits a `schema_version: 1` envelope.
+Consumers of its previous array output must read `data.reports` instead.
 
 ### `glossary`
 
@@ -490,9 +521,13 @@ documents receive markers on their next successful update.
 
 `internationalizer detect` identifies your i18n setup by checking:
 
-- `package.json` dependencies for react-i18next, next-intl, or vue-i18n
-- Directory structures matching common locale patterns
-- File extensions and naming conventions
+- Existing configured bundles and source-locale filenames/directories
+- Nested `package.json` dependencies and localization-module ICU references
+- Runtime evidence separately from file format, with uncertainty made explicit
+
+Scanning is bounded and excludes dependency, build, hidden, and data directories.
+Dynamic plugin registration and unconventional catalog paths need explicit
+configuration; static detection cannot prove that ICU integration is absent.
 
 ## Architecture
 

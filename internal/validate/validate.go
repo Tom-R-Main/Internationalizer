@@ -96,7 +96,7 @@ func ValidateWithOptions(cfg *config.Config, opts Options) ([]Report, error) {
 		sourceKeys := formats.UnitValues(sourceUnits)
 		sourceFindings := make(map[string][]Finding)
 		for _, unit := range sourceUnits {
-			if findings := SyntaxSourceFindings(unit.ID, unit.Value, cfg.SourceLocale, unit.Syntax); len(findings) > 0 {
+			if findings := SyntaxSourceFindings(unit.ID, unit.Value, cfg.SourceLocale, unit.Syntax, bundle.MessageSyntax); len(findings) > 0 {
 				sourceFindings[unit.ID] = findings
 			}
 		}

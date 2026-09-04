@@ -1,6 +1,6 @@
 {
   "name": "internationalizer-linux-x64",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "linux x64 binary for the internationalizer CLI",
   "license": "AGPL-3.0-only",
   "os": [
