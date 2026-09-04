@@ -3,10 +3,93 @@ package formats
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestJSONSerializeExtendsArraysInIndexOrder(t *testing.T) {
+	for _, tc := range []struct{ name, original, prefix string }{
+		{"array", `{"items":["old0","old1"]}`, "items."},
+		{"nested array", `{"groups":[{"items":["old0","old1"]}]}`, "groups.0.items."},
+		{"array of arrays", `{"matrix":[["old0","old1"]]}`, "matrix.0."},
+		{"root array", `["old0","old1"]`, "."},
+		{"numeric object keys", `{"items":{"0":"old0","1":"old1"},"items.note":"dotted"}`, "items."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			entries := make(map[string]string)
+			for i := range 13 {
+				entries[fmt.Sprintf("%s%d", tc.prefix, i)] = fmt.Sprintf("translated%d", i)
+			}
+			f := &JSONFormat{}
+			output, err := f.Serialize(entries, []byte(tc.original))
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := f.Parse(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for key, value := range entries {
+				if parsed[key] != value {
+					t.Fatalf("lost %s: %s", key, output)
+				}
+			}
+			var decoded any
+			if err := json.Unmarshal(output, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			switch tc.name {
+			case "array":
+				if _, ok := decoded.(map[string]any)["items"].([]any); !ok {
+					t.Fatal("array shape changed")
+				}
+			case "nested array":
+				if _, ok := decoded.(map[string]any)["groups"].([]any)[0].(map[string]any)["items"].([]any); !ok {
+					t.Fatal("nested array shape changed")
+				}
+			case "root array":
+				if _, ok := decoded.([]any); !ok {
+					t.Fatal("root array shape changed")
+				}
+			case "array of arrays":
+				if _, ok := decoded.(map[string]any)["matrix"].([]any)[0].([]any); !ok {
+					t.Fatal("inner array shape changed")
+				}
+			case "numeric object keys":
+				if _, ok := decoded.(map[string]any)["items"].(map[string]any); !ok {
+					t.Fatal("numeric object shape changed")
+				}
+				if parsed["items.note"] != "dotted" {
+					t.Fatal("dotted key lost")
+				}
+			}
+		})
+	}
+}
+
+func TestJSONPathOrderingIsStrictAndTransitive(t *testing.T) {
+	paths := []string{"", ".0", ".2", ".10", "items", "items.0", "items.2", "items.10", "items.1x", "items.02", "items.-1", "items.+1", "items.99999999999999999999999999", "items.2.a", "items.2.3", "items.2.10", "items..x", "x"}
+	for _, a := range paths {
+		if jsonPathLess(a, a) {
+			t.Fatalf("reflexive comparator: %q", a)
+		}
+		for _, b := range paths {
+			if a != b && jsonPathLess(a, b) == jsonPathLess(b, a) {
+				t.Fatalf("not a total order: %q, %q", a, b)
+			}
+			for _, c := range paths {
+				if jsonPathLess(a, b) && jsonPathLess(b, c) && !jsonPathLess(a, c) {
+					t.Fatalf("not transitive: %q < %q < %q", a, b, c)
+				}
+			}
+		}
+	}
+	if !jsonPathLess("items.2", "items.10") || !jsonPathLess("rows.0.items.2", "rows.0.items.10") {
+		t.Fatal("array indices not in numeric order")
+	}
+}
 
 func TestJSONRejectsIntegrityLoss(t *testing.T) {
 	cases := []struct{ name, input, code string }{

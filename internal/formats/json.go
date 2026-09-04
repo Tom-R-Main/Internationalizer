@@ -120,7 +120,7 @@ func serializePreservingOrder(entries map[string]string, original []byte) ([]byt
 	for key := range entries {
 		keys = append(keys, key)
 	}
-	sort.Strings(keys)
+	sort.Slice(keys, func(i, j int) bool { return jsonPathLess(keys[i], keys[j]) })
 	for _, key := range keys {
 		if _, ok := replaced[key]; ok {
 			continue
@@ -128,7 +128,12 @@ func serializePreservingOrder(entries map[string]string, original []byte) ([]byt
 		if strings.Count(key, ".") >= jsonintegrity.MaxDepth {
 			return nil, &jsonintegrity.Error{Code: "json_nesting_limit"}
 		}
-		if err := setPath(&raw, strings.Split(key, "."), entries[key]); err != nil {
+		parts := strings.Split(key, ".")
+		// Root arrays use the same leading-dot identities emitted by flatten.
+		if _, rootArray := raw.([]interface{}); rootArray && parts[0] == "" {
+			parts = parts[1:]
+		}
+		if err := setPath(&raw, parts, entries[key]); err != nil {
 			return nil, fmt.Errorf("json set path %q: %w", key, err)
 		}
 	}
@@ -144,6 +149,44 @@ func serializePreservingOrder(entries map[string]string, original []byte) ([]byt
 	}
 	// json.Encoder adds a trailing newline; trim then add exactly one.
 	return bytes.TrimRight(buf.Bytes(), "\n"), nil
+}
+
+// jsonPathLess orders canonical array-index segments numerically so contiguous
+// appends do not encounter index 10 before index 2. Numeric and other segments
+// have separate ranks; mixing numeric pair comparisons with lexical fallback
+// would violate transitivity (for example, "2", "10", and "1x").
+// This changes insertion order, not how existing objects or dotted keys resolve.
+func jsonPathLess(left, right string) bool {
+	lparts, rparts := strings.Split(left, "."), strings.Split(right, ".")
+	for i := 0; i < len(lparts) && i < len(rparts); i++ {
+		lpart, rpart := lparts[i], rparts[i]
+		if lpart == rpart {
+			continue
+		}
+		lnumeric, rnumeric := canonicalJSONIndex(lpart), canonicalJSONIndex(rpart)
+		if lnumeric != rnumeric {
+			return lnumeric
+		}
+		// Decimal length comparison avoids machine-integer overflow. Equal
+		// length canonical decimal indices have lexical numeric ordering.
+		if lnumeric && len(lpart) != len(rpart) {
+			return len(lpart) < len(rpart)
+		}
+		return lpart < rpart
+	}
+	return len(lparts) < len(rparts)
+}
+
+func canonicalJSONIndex(segment string) bool {
+	if segment == "" || (len(segment) > 1 && segment[0] == '0') {
+		return false
+	}
+	for _, c := range segment {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func replaceLeaves(prefix string, val interface{}, entries map[string]string, replaced map[string]struct{}) {
