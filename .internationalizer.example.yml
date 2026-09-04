@@ -15,10 +15,6 @@ llm:
   api_key_env: GOOGLE_AI_STUDIO_API_KEY   # env var containing your API key
   # base_url: https://api.openai.com  # for OpenAI-compatible endpoints
   locale_overrides:               # optional provider/model settings by target locale
-    ja:
-      provider: openrouter
-      model: sakana/sakana-namazu
-      api_key_env: OPENROUTER_API_KEY
     yue:
       provider: openrouter
       model: deepseek/deepseek-v4-flash-0731
