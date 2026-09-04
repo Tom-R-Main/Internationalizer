@@ -2,9 +2,25 @@ package llm
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 )
+
+func TestParseTranslationResponseRejectsIntegrityLoss(t *testing.T) {
+	for _, input := range []string{
+		`{"a":"{{name}}","a":"lost"}`,
+		`{"a.b":"one","a":{"b":"two"}}`,
+		"```json\n{\"a.b\":\"one\",\"a\":{\"b\":\"two\"}}\n```",
+		`{"a":"one","a":"two","extra":"` + "```json\n{\"safe\":\"value\"}\n```" + `"}`,
+	} {
+		_, err := ParseTranslationResponse(input)
+		var coded interface{ JSONCode() string }
+		if !errors.As(err, &coded) {
+			t.Fatalf("input accepted or lost integrity error: %v", err)
+		}
+	}
+}
 
 func TestParseTranslationResponse_RawJSON(t *testing.T) {
 	input := `{"common.save": "Enregistrer", "common.cancel": "Annuler"}`
@@ -62,10 +78,15 @@ func TestParseTranslationResponse_Invalid(t *testing.T) {
 
 func TestParseTranslationResponse_RejectsNonStringLeaves(t *testing.T) {
 	tests := map[string]string{
-		"boolean": `{"label":true}`,
-		"number":  `{"label":42}`,
-		"array":   `{"label":["Save"]}`,
-		"null":    `{"label":null}`,
+		"boolean":           `{"label":true}`,
+		"number":            `{"label":42}`,
+		"array":             `{"label":["Save"]}`,
+		"null":              `{"label":null}`,
+		"array of objects":  `{"label":[{"hidden":"value"}]}`,
+		"root array":        `[{"hidden":"value"}]`,
+		"root null":         `null`,
+		"trailing document": `{"label":"one"} {"label":"two"}`,
+		"trailing scalar":   `{"label":"one"} true`,
 	}
 	for name, input := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -83,6 +104,10 @@ func FuzzParseTranslationResponseRoundTrip(f *testing.F) {
 		"```json\n{\"save\":\"Save\"}\n```",
 		`not JSON`,
 		`{"value":null}`,
+		`{"a.b":{"c":"X"},"a":{"b":{"d":"Y"}}}`,
+		`{"":{"":"X"}}`,
+		`{"a":"x","a":"y"}`,
+		`{"a.b":"x","a":{"b":"y"}}`,
 	} {
 		f.Add(seed)
 	}

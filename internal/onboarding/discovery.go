@@ -43,6 +43,7 @@ type Diagnostic struct {
 }
 
 type Candidate struct {
+	ParseErrorCode       string         `json:"parse_error_code,omitempty"`
 	ID                   string         `json:"id"`
 	Source               string         `json:"source"`
 	Target               string         `json:"target"`
@@ -159,11 +160,13 @@ func Scan(root, configPath string) (*Inspection, error) {
 			result.Truncated = true
 			continue
 		}
-		if _, parseErr := formats.ParseUnits(format, content); parseErr != nil {
-			continue
-		}
 		candidate := Candidate{ID: path, Source: path, Target: target, Format: format.Name(), ConfiguredBundles: []string{}, RequiresConfirmation: temporaryPath(path)}
 		candidate.Evidence = []Evidence{{Path: path, Kind: "catalog_path", Detail: "Source-locale filename or directory; storage format does not establish message grammar."}}
+		if _, parseErr := formats.ParseUnits(format, content); parseErr != nil {
+			diagnostic := catalogParseDiagnostic(path, "", "CATALOG_PARSE_FAILED", parseErr)
+			candidate.ParseErrorCode = strings.ToLower(diagnostic.Code)
+			result.Diagnostics = append(result.Diagnostics, diagnostic)
+		}
 		applyRuntime(&candidate, nearestRuntime(filepath.Dir(path), runtimes))
 		result.Candidates = append(result.Candidates, candidate)
 	}
@@ -186,6 +189,9 @@ func Scan(root, configPath string) (*Inspection, error) {
 	}
 	for _, candidate := range result.Candidates {
 		if len(candidate.ConfiguredBundles) == 0 {
+			if candidate.ParseErrorCode != "" {
+				continue
+			}
 			result.Diagnostics = append(result.Diagnostics, Diagnostic{Code: "UNCOVERED_CATALOG", Severity: "warning", Message: "Detected catalog is not covered by the current configuration: " + candidate.Source, Evidence: candidate.Evidence, RequiredDecisions: []string{"select_authoritative_source", "select_message_syntax"}, Recovery: []Recovery{{Argv: []string{"internationalizer", "config", "plan", "--help"}, SideEffects: []string{}}}})
 		}
 	}
@@ -528,8 +534,16 @@ func inspectBundle(root string, bundle config.Bundle, cfg, raw config.Config, in
 	}
 	units, err := formats.ParseSourceUnits(format, data, bundle.MessageSyntax)
 	if err != nil {
-		result.Diagnostics = append(result.Diagnostics, Diagnostic{Code: "SOURCE_PARSE_FAILED", Severity: "error", Bundle: bundle.ID, Message: "Configured source could not be parsed using its storage format."})
+		result.Diagnostics = append(result.Diagnostics, catalogParseDiagnostic(relativePath(root, source), bundle.ID, "SOURCE_PARSE_FAILED", err))
 		return resolved
+	}
+	for _, locale := range cfg.TargetLocales {
+		path := resolved.Targets[locale]
+		if data, readErr := safeRead(path); readErr == nil {
+			if _, parseErr := formats.ParseUnits(format, data); parseErr != nil {
+				result.Diagnostics = append(result.Diagnostics, catalogParseDiagnostic(relativePath(root, path), bundle.ID, "TARGET_PARSE_FAILED", parseErr))
+			}
+		}
 	}
 	for _, unit := range units {
 		findings := validate.SyntaxSourceFindings(unit.ID, unit.Value, cfg.SourceLocale, unit.Syntax)
@@ -561,4 +575,17 @@ func inspectBundle(root string, bundle config.Bundle, cfg, raw config.Config, in
 		result.Diagnostics = append(result.Diagnostics, Diagnostic{Code: code, Severity: severity, Bundle: bundle.ID, Key: unit.ID, Message: text, RequiredDecisions: decisions, Evidence: []Evidence{{Path: relativePath(root, source), Kind: "source_syntax", Detail: "Source-only check; not repeated for each target locale."}}})
 	}
 	return resolved
+}
+
+func catalogParseDiagnostic(path, bundle, fallback string, err error) Diagnostic {
+	d := Diagnostic{Code: fallback, Severity: "error", Bundle: bundle,
+		Message:  "Catalog " + path + " could not be parsed using its storage format.",
+		Evidence: []Evidence{{Path: path, Kind: "catalog_parse", Detail: "Catalog input failed integrity validation."}},
+		Recovery: []Recovery{{Argv: []string{"internationalizer", "config", "check", "--json"}, SideEffects: []string{}, RequiredDecisions: []string{"repair_catalog_structure"}}}}
+	var coded interface{ JSONCode() string }
+	if errors.As(err, &coded) {
+		d.Code = strings.ToUpper(coded.JSONCode())
+		d.Message = "Catalog " + path + ": " + err.Error()
+	}
+	return d
 }
