@@ -36,6 +36,7 @@ var registry = []Format{
 	&JSONFormat{},
 	&YAMLFormat{},
 	&MarkdownFormat{},
+	&FluentFormat{},
 }
 
 // FormatForFile returns the appropriate format handler for a file path.

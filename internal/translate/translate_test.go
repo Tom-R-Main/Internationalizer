@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,6 +35,67 @@ func (p *fakeProvider) Translate(_ context.Context, request llm.TranslateRequest
 	p.calls++
 	p.requests = append(p.requests, request)
 	return p.response, nil
+}
+
+func TestRunTranslatesFluentUnitsWithDeveloperContext(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "en.ftl")
+	source := "# A command, not a noun.\nopen-button = Open { -brand-short-name }\n    .aria-label = Open the application\n\n-brand-short-name = Acme\n"
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig(dir, sourcePath)
+	provider := &fakeProvider{response: &llm.TranslateResponse{Translations: map[string]string{
+		"open-button":            "Ouvrir { -brand-short-name }",
+		"open-button.aria-label": "Ouvrir l’application",
+		"-brand-short-name":      "Acme",
+	}}}
+
+	if _, err := Run(context.Background(), cfg, provider, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("provider requests = %#v, want one request", provider.requests)
+	}
+	context := ""
+	for _, entry := range provider.requests[0].Entries {
+		if entry.Key == "open-button" {
+			context = entry.Context
+		}
+	}
+	if len(provider.requests[0].Entries) != 3 || context != "# A command, not a noun." {
+		t.Fatalf("provider requests = %#v", provider.requests)
+	}
+	if !strings.Contains(provider.requests[0].SystemPrompt, "Fluent variables") {
+		t.Fatalf("provider did not receive Fluent prompt: %s", provider.requests[0].SystemPrompt)
+	}
+	output, err := os.ReadFile(filepath.Join(dir, "fr.ftl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(output)
+	for _, expected := range []string{"# A command, not a noun.", "open-button = Ouvrir { -brand-short-name }", ".aria-label = Ouvrir l’application", "-brand-short-name = Acme"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("Fluent output lacks %q:\n%s", expected, text)
+		}
+	}
+	changedContext := strings.Replace(source, "# A command, not a noun.", "# A noun shown in the File menu.", 1)
+	if err := os.WriteFile(sourcePath, []byte(changedContext), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reports, err := validation.ValidateWithOptions(cfg, validation.Options{RequireState: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundStale := false
+	for _, finding := range reports[0].Findings {
+		if finding.Key == "open-button" && finding.Code == validation.CodeSourceStale {
+			foundStale = true
+		}
+	}
+	if !foundStale {
+		t.Fatalf("developer-context change did not stale provenance: %#v", reports[0].Findings)
+	}
 }
 
 func TestRunRejectsIncompleteProviderResponseWithoutWritingTarget(t *testing.T) {

@@ -940,6 +940,31 @@ func (message *Message) String() string {
 	return output.String()
 }
 
+// TransformText applies transform only to literal text while preserving ICU
+// arguments, selectors, formatter styles, plural offsets, and pound tokens.
+func TransformText(input string, transform func(string) string) (string, error) {
+	parsed, err := Parse(input)
+	if err != nil {
+		return "", err
+	}
+	transformMessageText(parsed, transform)
+	return parsed.String(), nil
+}
+
+func transformMessageText(message *Message, transform func(string) string) {
+	for index := range message.elements {
+		element := &message.elements[index]
+		switch element.kind {
+		case elementText:
+			element.text = transform(element.text)
+		case elementArgument:
+			for optionIndex := range element.argument.Options {
+				transformMessageText(element.argument.Options[optionIndex].Message, transform)
+			}
+		}
+	}
+}
+
 func (message *Message) writeTo(output *strings.Builder, pluralContext bool) {
 	for _, element := range message.elements {
 		switch element.kind {

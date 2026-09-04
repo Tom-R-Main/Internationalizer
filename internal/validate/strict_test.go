@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -318,6 +319,49 @@ func TestRequireStateReportsAndClearsBoundProvenanceFindings(t *testing.T) {
 	assertFindingCodes(t, reports[0], CodePolicyStale, CodeSourceStale, CodeTargetModified)
 }
 
+func TestRequireApprovedRequiresExplicitReview(t *testing.T) {
+	cfg := validationConfig(t, map[string]string{"save": "Save"}, map[string]string{"save": "Enregistrer"})
+	resolved, err := policy.Resolve(cfg, "fr", "json", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := state.New()
+	manifest.Set(state.Entry{
+		Bundle:       "default",
+		Key:          "save",
+		Locale:       "fr",
+		SourceHash:   state.SourceHash("json", "Save"),
+		PolicyHash:   resolved.Hash,
+		TargetHash:   state.TargetHash("Enregistrer"),
+		Origin:       "provider",
+		ReviewStatus: state.ReviewNeedsReview,
+		UpdatedAt:    time.Now().UTC(),
+	})
+	if err := manifest.Save(cfg.ManifestPath); err != nil {
+		t.Fatal(err)
+	}
+
+	reports, err := ValidateWithOptions(cfg, Options{RequireApproved: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFindingCodes(t, reports[0], CodeNeedsReview)
+
+	if _, err := manifest.Approve("default", "save", "fr", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := manifest.Save(cfg.ManifestPath); err != nil {
+		t.Fatal(err)
+	}
+	reports, err = ValidateWithOptions(cfg, Options{RequireApproved: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if HasFailures(reports) {
+		t.Fatalf("approved current translation failed: %#v", reports[0])
+	}
+}
+
 func TestRequireStateRejectsMalformedManifest(t *testing.T) {
 	cfg := validationConfig(t, map[string]string{"save": "Save"}, map[string]string{"save": "Enregistrer"})
 	if err := os.WriteFile(cfg.ManifestPath, []byte("{"), 0o644); err != nil {
@@ -419,6 +463,51 @@ func TestProtectedFindingsCarryContextIntoNestedICUBranches(t *testing.T) {
 				t.Fatal("damaged nested ICU protected content was accepted")
 			}
 		})
+	}
+}
+
+func TestProtectedFindingsAllowNamedMarkupSlotsToMove(t *testing.T) {
+	source := `Read <a data-l10n-name="docs" href="/docs">the guide</a> or <button type="button" data-l10n-name="retry">retry</button>.`
+	target := `Vous pouvez <button data-l10n-name="retry" type="button">réessayer</button> ou lire <a href="/docs" data-l10n-name="docs">le guide</a>.`
+	if findings := ProtectedFindings("actions", source, target, "fr"); len(findings) != 0 {
+		t.Fatalf("valid named markup reordering produced findings: %#v", findings)
+	}
+}
+
+func TestProtectedFindingsRejectDamageToNamedMarkupSlots(t *testing.T) {
+	source := `Read <a data-l10n-name="docs" href="/docs"><strong>the guide</strong></a>.`
+	tests := map[string]string{
+		"changed protected attribute": `Lire <a data-l10n-name="docs" href="/other"><strong>le guide</strong></a>.`,
+		"changed element":             `Lire <button data-l10n-name="docs" href="/docs"><strong>le guide</strong></button>.`,
+		"changed contained markup":    `Lire <a data-l10n-name="docs" href="/docs"><em>le guide</em></a>.`,
+		"changed slot name":           `Lire <a data-l10n-name="help" href="/docs"><strong>le guide</strong></a>.`,
+		"unbalanced markup":           `Lire <a data-l10n-name="docs" href="/docs"><strong>le guide</a></strong>.`,
+	}
+	for name, target := range tests {
+		t.Run(name, func(t *testing.T) {
+			if findings := ProtectedFindings("docs", source, target, "fr"); len(findings) == 0 {
+				t.Fatal("damaged named markup was accepted")
+			}
+		})
+	}
+}
+
+func TestProtectedFindingsValidateFluentPatterns(t *testing.T) {
+	source := `{ $count ->
+    [one] One message for { $user }
+   *[other] { $count } messages for { $user }
+}`
+	valid := `{ $count ->
+    [one] Un message pour { $user }
+    [many] { $count } messages pour { $user }
+   *[other] { $count } messages pour { $user }
+}`
+	if findings := ProtectedFindings("messages", source, valid, "fr"); len(findings) != 0 {
+		t.Fatalf("valid Fluent target produced findings: %#v", findings)
+	}
+	damaged := strings.Replace(valid, "{ $user }", "{ $account }", 1)
+	if findings := ProtectedFindings("messages", source, damaged, "fr"); len(findings) == 0 {
+		t.Fatal("damaged Fluent target was accepted")
 	}
 }
 

@@ -20,8 +20,9 @@ import (
 // Options enables validation contracts that are intentionally opt-in during
 // their compatibility period.
 type Options struct {
-	Strict       bool
-	RequireState bool
+	Strict          bool
+	RequireState    bool
+	RequireApproved bool
 }
 
 // Report holds validation results for a single locale. Coverage remains a
@@ -56,6 +57,9 @@ func Validate(cfg *config.Config) ([]Report, error) {
 
 // ValidateWithOptions checks all target locales against the source locale.
 func ValidateWithOptions(cfg *config.Config, opts Options) ([]Report, error) {
+	if opts.RequireApproved {
+		opts.RequireState = true
+	}
 	effectiveConfig := *cfg
 	effectiveConfig.ApplyDefaults()
 	cfg = &effectiveConfig
@@ -82,10 +86,11 @@ func ValidateWithOptions(cfg *config.Config, opts Options) ([]Report, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading bundle %q source %s: %w", bundle.ID, bundle.Source, err)
 		}
-		sourceKeys, err := format.Parse(sourceData)
+		sourceUnits, err := formats.ParseUnits(format, sourceData)
 		if err != nil {
 			return nil, fmt.Errorf("parsing bundle %q source: %w", bundle.ID, err)
 		}
+		sourceKeys := formats.UnitValues(sourceUnits)
 		for _, locale := range cfg.TargetLocales {
 			targetPath, err := bundle.TargetPath(locale)
 			if err != nil {
@@ -113,7 +118,7 @@ func ValidateWithOptions(cfg *config.Config, opts Options) ([]Report, error) {
 				policyHash = resolved.Hash
 			}
 
-			report := validateLocale(bundle.ID, cfg.SourceLocale, locale, bundle.Source, sourceData, sourceKeys, targetPath, format, terms, manifest, policyHash, cfg.Validation.PluralStyle, opts)
+			report := validateLocale(bundle.ID, cfg.SourceLocale, locale, bundle.Source, sourceData, sourceUnits, sourceKeys, targetPath, format, terms, manifest, policyHash, cfg.Validation.PluralStyle, opts)
 			reports = append(reports, report)
 		}
 	}
@@ -127,7 +132,7 @@ func formatForBundle(bundle config.Bundle) (formats.Format, error) {
 	return formats.FormatForFile(bundle.Source)
 }
 
-func validateLocale(bundle, sourceLocale, locale, sourcePath string, sourceData []byte, sourceKeys map[string]string, targetPath string, format formats.Format, terms []glossary.Term, manifest *state.Manifest, policyHash, pluralStyle string, opts Options) Report {
+func validateLocale(bundle, sourceLocale, locale, sourcePath string, sourceData []byte, sourceUnits []formats.Unit, sourceKeys map[string]string, targetPath string, format formats.Format, terms []glossary.Term, manifest *state.Manifest, policyHash, pluralStyle string, opts Options) Report {
 	report := Report{Bundle: bundle, Locale: locale, TargetPath: targetPath}
 	if opts.Strict {
 		translated := 0.0
@@ -171,6 +176,10 @@ func validateLocale(bundle, sourceLocale, locale, sourcePath string, sourceData 
 		report.Errors = append(report.Errors, fmt.Sprintf("parsing target: %v", err))
 		sortFindings(report.Findings)
 		return report
+	}
+	sourceUnitsByID := make(map[string]formats.Unit, len(sourceUnits))
+	for _, unit := range sourceUnits {
+		sourceUnitsByID[unit.ID] = unit
 	}
 
 	present := 0
@@ -225,7 +234,9 @@ func validateLocale(bundle, sourceLocale, locale, sourcePath string, sourceData 
 			report.Findings = append(report.Findings, glossaryFindings(key, sourceValue, targetValue, terms)...)
 		}
 		if opts.RequireState {
-			report.Findings = append(report.Findings, provenanceFindings(bundle, key, locale, format.Name(), sourceValue, targetValue, policyHash, manifest)...)
+			sourceUnit := sourceUnitsByID[key]
+			sourceUnit.Value = sourceValue
+			report.Findings = append(report.Findings, provenanceFindings(bundle, key, locale, format.Name(), sourceUnit, targetValue, policyHash, manifest, opts.RequireApproved)...)
 		}
 	}
 
@@ -304,13 +315,13 @@ func missingFinding(key string, requiredPluralKeys map[string]struct{}) Finding 
 	return Finding{Code: CodeMissingKey, Severity: SeverityError, Key: key, Message: "target key is missing"}
 }
 
-func provenanceFindings(bundle, key, locale, format, source, target, policyHash string, manifest *state.Manifest) []Finding {
+func provenanceFindings(bundle, key, locale, format string, source formats.Unit, target, policyHash string, manifest *state.Manifest, requireApproved bool) []Finding {
 	recorded, ok := manifest.Get(bundle, key, locale)
 	if !ok {
 		return []Finding{{Code: CodeUntracked, Severity: SeverityError, Key: key, Message: "target has no manifest provenance"}}
 	}
 	var findings []Finding
-	if recorded.SourceHash != state.SourceHash(format, source) {
+	if recorded.SourceHash != state.SourceUnitHash(format, source.Value, source.Context, source.Structure) {
 		findings = append(findings, Finding{Code: CodeSourceStale, Severity: SeverityError, Key: key, Message: "source changed after the recorded translation"})
 	}
 	if recorded.PolicyHash != policyHash {
@@ -318,6 +329,9 @@ func provenanceFindings(bundle, key, locale, format, source, target, policyHash 
 	}
 	if recorded.TargetHash != state.TargetHash(target) {
 		findings = append(findings, Finding{Code: CodeTargetModified, Severity: SeverityError, Key: key, Message: "target changed after the recorded translation"})
+	}
+	if requireApproved && recorded.ReviewStatus != state.ReviewApproved {
+		findings = append(findings, Finding{Code: CodeNeedsReview, Severity: SeverityError, Key: key, Message: "translation has not been explicitly approved"})
 	}
 	return findings
 }

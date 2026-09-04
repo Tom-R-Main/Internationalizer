@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Tom-R-Main/Internationalizer/internal/fluentpattern"
 	"github.com/Tom-R-Main/Internationalizer/internal/message"
 )
 
@@ -40,6 +41,15 @@ func protectedFindings(key, source, target, targetLocale, sourcePath, targetPath
 	if !icu {
 		if mismatch := InterpolationMismatch(key, source, target); mismatch != nil {
 			findings = append(findings, protectedFinding(key, "interpolation variables", mismatch.SourceVars, mismatch.TargetVars))
+		}
+		if fluentpattern.LooksLike(source) || fluentpattern.LooksLike(target) {
+			expected, actual, preserved, err := fluentpattern.Compare(source, target)
+			if err != nil {
+				actual = []string{err.Error()}
+			}
+			if err != nil || !preserved {
+				findings = append(findings, protectedFinding(key, "Fluent pattern", expected, actual))
+			}
 		}
 	}
 	checks := []struct {
@@ -88,7 +98,7 @@ func protectedFindings(key, source, target, targetLocale, sourcePath, targetPath
 }
 
 func extractDocumentHTMLTags(input, documentPath string) []string {
-	tags := extractHTMLTags(input)
+	tags := htmlTagRe.FindAllString(input, -1)
 	for index, tag := range tags {
 		tags[index] = htmlPathAttrRe.ReplaceAllStringFunc(tag, func(attribute string) string {
 			match := htmlPathAttrRe.FindStringSubmatch(attribute)
@@ -144,7 +154,7 @@ func resolveDocumentDestination(destination, documentPath string) string {
 }
 
 func extractHTMLTags(input string) []string {
-	return htmlTagRe.FindAllString(input, -1)
+	return extractHTMLStructure(input)
 }
 
 func extractInlineCode(input string) []string {

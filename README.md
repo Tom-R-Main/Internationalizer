@@ -29,6 +29,8 @@ Internationalizer is different. It's a **CLI pipeline** that combines LLM transl
 - **Per-language style guides** — control tone, formality, pluralization, and typography
 - **Translation memory** — skip unchanged strings, save money on API calls
 - **Deterministic validation** — catch missing or extra keys, protected-structure drift, glossary issues, and plural or ICU errors before they ship
+- **Explicit approval** — keep provider or adopted provenance separate from human review
+- **Fluent and pseudolocales** — preserve translator context and exercise accented or bidirectional layouts without an API call
 
 ## Installation
 
@@ -105,10 +107,13 @@ internationalizer translate --dry-run
 internationalizer translate
 ```
 
-5. Validate all locales:
+5. Validate and approve the exact generated artifacts:
 
 ```bash
 internationalizer validate
+internationalizer review list --status needs_review
+internationalizer review approve --locale fr --all
+internationalizer validate --require-approved
 ```
 
 ## Commands
@@ -131,9 +136,39 @@ Translation state independently reports missing, source-stale, policy-stale,
 current, and manually edited conditions, so a manual edit cannot conceal a
 source or policy change. Policy-stale values are reported but only retranslated
 with `--refresh-policy`. Manually edited values are never overwritten
-automatically. Use `--adopt-existing` when introducing the manifest to reviewed
-translations or when explicitly accepting a reviewed manual edit as the new
-baseline.
+automatically. Use `--adopt-existing` when introducing the manifest to existing
+translations or when explicitly accepting a manual edit as the new provenance
+baseline. Adoption does not imply human approval; use `review approve` for that
+separate decision.
+
+### `pseudo`
+
+Generate deterministic test locales without a provider or translation-memory
+lookup. Accented output defaults to `en-XA`; bidirectional output defaults to
+`ar-XB`. ICU and Fluent runtime syntax, code, links, and markup are preserved.
+
+```bash
+internationalizer pseudo                         # accented en-XA
+internationalizer pseudo --strategy bidi         # bidi ar-XB
+internationalizer pseudo --dry-run                # show planned artifacts only
+internationalizer pseudo --locale qps-ploc        # choose another valid locale tag
+```
+
+The generator refreshes only artifacts it previously recorded as pseudo
+output. Use `--force` to replace any other existing target deliberately.
+
+### `review`
+
+Inspect and approve the exact target content currently bound to its source and
+translation policy. Generated, cached, and adopted values all begin in
+`needs_review`; approval is invalidated by later source, policy, or target
+changes. Pseudolocales are tracked separately as test artifacts.
+
+```bash
+internationalizer review list --status needs_review
+internationalizer review approve --locale fr --bundle app --key common.save
+internationalizer review approve --locale fr --all
+```
 
 ### `validate`
 
@@ -148,6 +183,7 @@ internationalizer validate --json              # machine-readable JSON
 internationalizer validate -q                  # exit code only
 internationalizer validate --strict             # enforce translation quality rules
 internationalizer validate --require-state      # require current manifest provenance
+internationalizer validate --require-approved   # also require explicit approval
 ```
 
 `--strict` also reports translated coverage. A linguistic value identical to
@@ -159,7 +195,9 @@ Markdown-link structure, glossary violations, and configured plural forms.
 
 `--require-state` verifies each target against `.internationalizer.lock`. It
 fails when a key is untracked, or when its recorded source, translation policy,
-or target hash is stale. It can be combined with `--strict`.
+or target hash is stale. `--require-approved` implies `--require-state` and also
+fails if the exact current artifact has not been approved. Both can be combined
+with `--strict`.
 
 Human and JSON reports use stable finding codes:
 
@@ -178,6 +216,7 @@ Human and JSON reports use stable finding codes:
 | `source_stale` | Source content changed after the recorded translation |
 | `policy_stale` | The generated prompt or model settings changed |
 | `target_modified` | Target content differs from the manifest record |
+| `needs_review` | Current provenance exists, but the exact target is not approved |
 
 ### `detect`
 
@@ -231,6 +270,10 @@ bundles:
     source: README.md
     target: docs/i18n/{locale}.md
     format: markdown
+  - id: browser
+    source: browser/locales/en-US/browser.ftl
+    target: browser/locales/{locale}/browser.ftl
+    format: fluent
 
 # Backward compatibility: source_path still maps targets to sibling files
 # such as locales/fr.json. Prefer bundles for new projects.
@@ -313,6 +356,14 @@ branch identity, and target-locale CLDR plural categories. Provider output that
 breaks these invariants is rejected before a locale file or translation-memory
 record is written.
 
+Fluent (`.ftl`) resources are handled as semantic source documents rather than
+flattened maps. Message values, terms, and attributes become independent units;
+comments are passed to the provider as developer context and included in source
+provenance. Serialization preserves resource comments and ordering. Validation
+protects variables, references, functions, selector defaults and branches, and
+`data-l10n-name` markup slots while allowing target-locale selector variants and
+natural reordering of named rich-text elements.
+
 With `i18next-v4`, recognized source plural families are expanded during
 translation to the target locale's CLDR categories. A target-only category uses
 the source family's `_other` value as its translation template. Strict
@@ -386,6 +437,8 @@ from the cache without calling the LLM. The default path is under the ignored
 `.internationalizer/` directory, so it remains a local cache. Set `tm_path` to a
 tracked location if your project intentionally shares translation memory. The
 reviewable `.internationalizer.lock` manifest is versioned separately.
+Manifest schema v2 records provenance origin and review status independently,
+so “generated successfully” and “approved by a person” cannot be conflated.
 
 ## Supported Formats
 
@@ -394,6 +447,7 @@ reviewable `.internationalizer.lock` manifest is versioned separately.
 | JSON | `.json` | Key-value (nested, dot-notation flattened) |
 | YAML | `.yml`, `.yaml` | Key-value (preserves comments and ordering) |
 | Markdown | `.md`, `.mdx` | Preamble and H2-level sections |
+| Fluent | `.ftl` | Semantic messages, terms, attributes, comments, and selectors |
 
 Markdown targets contain invisible `internationalizer:unit` comments before
 H2 sections. These stable markers let Internationalizer add, move, or edit one
@@ -415,7 +469,8 @@ cmd/internationalizer/     CLI entry point and command definitions
 internal/
   config/                  YAML config loading with defaults
   detect/                  Project type auto-detection
-  formats/                 Format parsers (JSON, YAML, Markdown)
+  fluentpattern/           Fluent pattern validation and safe text transforms
+  formats/                 Format adapters (JSON, YAML, Markdown, Fluent)
   glossary/                Per-locale glossary management
   llm/                     LLM provider interface + implementations
     anthropic.go           Anthropic Claude backend
@@ -425,6 +480,8 @@ internal/
   locale/                  BCP 47 identity and CLDR plural categories
   message/                 ICU MessageFormat parser and structural comparison
   policy/                  Stable translation-policy hashing
+  pseudo/                  Provider-free accented and bidi test locales
+  review/                  Explicit artifact approval workflow
   state/                   Versioned translation manifest
   styleguide/              Style guide loader
   tm/                      JSONL translation memory

@@ -20,6 +20,7 @@ const (
 	CodeSourceStale                FindingCode = "source_stale"
 	CodePolicyStale                FindingCode = "policy_stale"
 	CodeTargetModified             FindingCode = "target_modified"
+	CodeNeedsReview                FindingCode = "needs_review"
 )
 
 // Severity determines whether a finding fails validation.

@@ -20,7 +20,8 @@ func newValidateCmd() *cobra.Command {
 
 Use --strict to require translated values and enforce extra-key, protected
 structure, glossary, and configured plural rules. Use --require-state to verify
-that source, policy, and target content still match the translation manifest.`,
+that source, policy, and target content still match the translation manifest.
+Use --require-approved to additionally require explicit human approval.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfgPath, _ := cmd.Flags().GetString("config")
 			cfg, err := config.Load(cfgPath)
@@ -30,9 +31,11 @@ that source, policy, and target content still match the translation manifest.`,
 
 			strict, _ := cmd.Flags().GetBool("strict")
 			requireState, _ := cmd.Flags().GetBool("require-state")
+			requireApproved, _ := cmd.Flags().GetBool("require-approved")
 			reports, err := validate.ValidateWithOptions(cfg, validate.Options{
-				Strict:       strict,
-				RequireState: requireState,
+				Strict:          strict,
+				RequireState:    requireState,
+				RequireApproved: requireApproved,
 			})
 			if err != nil {
 				return err
@@ -65,6 +68,7 @@ that source, policy, and target content still match the translation manifest.`,
 	cmd.Flags().BoolP("quiet", "q", false, "exit code only, no output")
 	cmd.Flags().Bool("strict", false, "fail on untranslated values and strict policy findings")
 	cmd.Flags().Bool("require-state", false, "fail when translation manifest state is missing or stale")
+	cmd.Flags().Bool("require-approved", false, "fail unless current translations have explicit human approval")
 
 	return cmd
 }

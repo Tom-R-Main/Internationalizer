@@ -64,10 +64,11 @@ func (e *RunError) Error() string {
 }
 
 type preparedBundle struct {
-	bundle     config.Bundle
-	format     formats.Format
-	sourceKeys map[string]string
-	sourceData []byte
+	bundle      config.Bundle
+	format      formats.Format
+	sourceUnits []formats.Unit
+	sourceKeys  map[string]string
+	sourceData  []byte
 }
 
 type job struct {
@@ -227,11 +228,11 @@ func prepareBundles(bundles []config.Bundle) ([]preparedBundle, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading bundle %q source %s: %w", bundle.ID, bundle.Source, err)
 		}
-		keys, err := format.Parse(data)
+		units, err := formats.ParseUnits(format, data)
 		if err != nil {
 			return nil, fmt.Errorf("parsing bundle %q source: %w", bundle.ID, err)
 		}
-		prepared = append(prepared, preparedBundle{bundle: bundle, format: format, sourceKeys: keys, sourceData: data})
+		prepared = append(prepared, preparedBundle{bundle: bundle, format: format, sourceUnits: units, sourceKeys: formats.UnitValues(units), sourceData: data})
 	}
 	return prepared, nil
 }
@@ -298,6 +299,7 @@ func translateLocale(
 	policyHash := translationPolicy.Hash
 
 	targetKeys := make(map[string]string)
+	var targetUnits []formats.Unit
 	var targetData []byte
 	targetExists := false
 	data, err := os.ReadFile(targetPath)
@@ -305,7 +307,12 @@ func translateLocale(
 	case err == nil:
 		targetExists = true
 		targetData = data
-		targetKeys, err = parseTarget(bundle.format, bundle.sourceData, data)
+		if paired, ok := bundle.format.(formats.PairedFormat); ok {
+			targetKeys, err = paired.ParseTarget(bundle.sourceData, data)
+		} else {
+			targetUnits, err = formats.ParseUnits(bundle.format, data)
+			targetKeys = formats.UnitValues(targetUnits)
+		}
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("parsing target %s: %v", targetPath, err))
 			return jobOutput{result: result}
@@ -317,14 +324,19 @@ func translateLocale(
 	}
 
 	keys := sortedKeys(sourceKeys)
+	sourceUnits := make(map[string]formats.Unit, len(bundle.sourceUnits))
+	for _, unit := range bundle.sourceUnits {
+		sourceUnits[unit.ID] = unit
+	}
 	plans := make([]plannedEntry, 0, len(keys))
 	for _, key := range keys {
 		sourceValue := sourceKeys[key]
-		sourceHash := state.SourceHash(bundle.format.Name(), sourceValue)
+		sourceUnit := sourceUnits[key]
+		sourceHash := state.SourceUnitHash(bundle.format.Name(), sourceValue, sourceUnit.Context, sourceUnit.Structure)
 		targetValue, exists := targetKeys[key]
 		recorded, recordedOK := manifest.Get(bundle.bundle.ID, key, locale)
 		entryState := classify(exists, targetValue, sourceHash, policyHash, recorded, recordedOK)
-		plans = append(plans, plannedEntry{key: key, source: sourceValue, sourceHash: sourceHash, state: entryState})
+		plans = append(plans, plannedEntry{key: key, source: sourceValue, context: sourceUnit.Context, sourceHash: sourceHash, state: entryState})
 		result.addState(entryState)
 	}
 	if opts.AdoptExisting {
@@ -387,7 +399,7 @@ func translateLocale(
 		batchPlans := toTranslate[i:end]
 		entries := make([]llm.Entry, len(batchPlans))
 		for j, plan := range batchPlans {
-			entries[j] = llm.Entry{Key: plan.key, Value: plan.source}
+			entries[j] = llm.Entry{Key: plan.key, Value: plan.source, Context: plan.context}
 		}
 
 		response, err := provider.Translate(ctx, llm.TranslateRequest{
@@ -452,7 +464,17 @@ func translateLocale(
 				}
 			}
 		}
-		output, err := serializeTarget(bundle.format, staged, bundle.sourceData, serializationBaseline)
+		var output []byte
+		if paired, ok := bundle.format.(formats.PairedFormat); ok {
+			output, err = paired.SerializeTarget(staged, bundle.sourceData, serializationBaseline)
+		} else {
+			unitBaseline := targetUnits
+			if !targetExists {
+				unitBaseline = bundle.sourceUnits
+			}
+			stagedUnits := formats.MergeUnitValues(unitBaseline, bundle.sourceUnits, staged)
+			output, err = formats.SerializeUnits(bundle.format, stagedUnits, serializationBaseline)
+		}
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("serializing target %s: %v", targetPath, err))
 			return jobOutput{result: result}
@@ -510,6 +532,7 @@ func translateLocale(
 				Origin:        origin.kind,
 				Provider:      origin.provider,
 				Model:         origin.model,
+				ReviewStatus:  state.ReviewNeedsReview,
 				UpdatedAt:     now,
 			})
 		}
@@ -522,13 +545,6 @@ func parseTarget(format formats.Format, source, target []byte) (map[string]strin
 		return paired.ParseTarget(source, target)
 	}
 	return format.Parse(target)
-}
-
-func serializeTarget(format formats.Format, entries map[string]string, source, target []byte) ([]byte, error) {
-	if paired, ok := format.(formats.PairedFormat); ok {
-		return paired.SerializeTarget(entries, source, target)
-	}
-	return format.Serialize(entries, target)
 }
 
 type entryState struct {
@@ -553,6 +569,7 @@ type translationOrigin struct {
 type plannedEntry struct {
 	key        string
 	source     string
+	context    string
 	sourceHash string
 	state      entryState
 }
