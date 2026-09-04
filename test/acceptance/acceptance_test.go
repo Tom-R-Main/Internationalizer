@@ -61,9 +61,9 @@ func TestDetectUsesProjectFixture(t *testing.T) {
 	result.requireSuccess(t)
 	normalizedStdout := strings.ReplaceAll(result.stdout, `\`, "/")
 	for _, want := range []string{
-		"Detected: react-i18next (confidence: 90%)",
-		"source_path: public/locales/en.json",
-		"model: gemini-3.8-flash",
+		"Catalog public/locales/en.json: framework=i18next",
+		"suggested syntax=i18next",
+		"UNCOVERED_CATALOG",
 	} {
 		if !strings.Contains(normalizedStdout, want) {
 			t.Fatalf("detect stdout does not contain %q:\n%s", want, result.stdout)

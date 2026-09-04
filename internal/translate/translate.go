@@ -35,27 +35,28 @@ type Options struct {
 // Result holds the outcome of one bundle and locale. Lifecycle counters are
 // pre-run observations; manual, source-stale, and policy-stale may overlap.
 type Result struct {
-	BlockedBySource bool
-	SourcePath      string
-	BlockedLocales  []string
-	DryRun          bool
-	Bundle          string
-	Locale          string
-	TargetPath      string
-	KeysTotal       int
-	KeysMissing     int
-	KeysSourceStale int
-	KeysPolicyStale int
-	KeysManualEdit  int
-	KeysUntracked   int
-	KeysCurrent     int
-	KeysCached      int
-	KeysTranslated  int
-	KeysSkipped     int
-	Batches         int
-	TokensIn        int
-	TokensOut       int
-	Errors          []string
+	BlockedBySource bool     `json:"blocked_by_source"`
+	SourcePath      string   `json:"source_path,omitempty"`
+	BlockedLocales  []string `json:"blocked_locales,omitempty"`
+	DryRun          bool     `json:"dry_run"`
+	Bundle          string   `json:"bundle"`
+	Locale          string   `json:"locale"`
+	TargetPath      string   `json:"target_path"`
+	KeysTotal       int      `json:"keys_total"`
+	KeysMissing     int      `json:"keys_missing"`
+	KeysSourceStale int      `json:"keys_source_stale"`
+	KeysPolicyStale int      `json:"keys_policy_stale"`
+	KeysManualEdit  int      `json:"keys_manual_edit"`
+	KeysUntracked   int      `json:"keys_untracked"`
+	KeysCurrent     int      `json:"keys_current"`
+	KeysCached      int      `json:"keys_cached"`
+	KeysTranslated  int      `json:"keys_translated"`
+	KeysSkipped     int      `json:"keys_skipped"`
+	Batches         int      `json:"batches"`
+	ProviderCalls   int      `json:"provider_calls"`
+	TokensIn        int      `json:"tokens_in"`
+	TokensOut       int      `json:"tokens_out"`
+	Errors          []string `json:"errors,omitempty"`
 }
 
 // RunError reports that one or more locale jobs failed. Results remain
@@ -139,7 +140,7 @@ func Run(ctx context.Context, cfg *config.Config, provider llm.Provider, opts Op
 	}
 	for i := range bundles {
 		for _, unit := range bundles[i].sourceUnits {
-			for _, finding := range validation.SyntaxSourceFindings(unit.ID, unit.Value, cfg.SourceLocale, unit.Syntax) {
+			for _, finding := range validation.SyntaxSourceFindings(unit.ID, unit.Value, cfg.SourceLocale, unit.Syntax, bundles[i].bundle.MessageSyntax) {
 				bundles[i].sourceErrors = append(bundles[i].sourceErrors, fmt.Sprintf("source %q: %s", unit.ID, finding.Message))
 			}
 		}
@@ -430,6 +431,7 @@ func translateLocale(
 			entries[j] = llm.Entry{Key: plan.key, Value: plan.source, Context: plan.context}
 		}
 
+		result.ProviderCalls++
 		response, err := provider.Translate(ctx, llm.TranslateRequest{
 			SourceLocale: cfg.SourceLocale,
 			TargetLocale: locale,
