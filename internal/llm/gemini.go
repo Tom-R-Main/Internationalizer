@@ -33,11 +33,7 @@ func NewGemini(apiKey, model string) *Gemini {
 func (g *Gemini) Name() string { return "gemini" }
 
 func (g *Gemini) Translate(ctx context.Context, req TranslateRequest) (*TranslateResponse, error) {
-	input := make(map[string]string, len(req.Entries))
-	for _, e := range req.Entries {
-		input[e.Key] = e.Value
-	}
-	inputJSON, err := json.Marshal(input)
+	inputJSON, err := marshalEntries(req.Entries)
 	if err != nil {
 		return nil, fmt.Errorf("marshal input: %w", err)
 	}

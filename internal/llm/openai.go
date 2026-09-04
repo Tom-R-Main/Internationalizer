@@ -64,11 +64,7 @@ func NewOpenRouter(apiKey, model string) *OpenAI {
 func (o *OpenAI) Name() string { return o.providerName }
 
 func (o *OpenAI) Translate(ctx context.Context, req TranslateRequest) (*TranslateResponse, error) {
-	input := make(map[string]string, len(req.Entries))
-	for _, e := range req.Entries {
-		input[e.Key] = e.Value
-	}
-	inputJSON, err := json.Marshal(input)
+	inputJSON, err := marshalEntries(req.Entries)
 	if err != nil {
 		return nil, fmt.Errorf("marshal input: %w", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -456,6 +457,25 @@ func TestProtectedFindingsRejectDamageToNamedMarkupSlots(t *testing.T) {
 				t.Fatal("damaged named markup was accepted")
 			}
 		})
+	}
+}
+
+func TestProtectedFindingsValidateFluentPatterns(t *testing.T) {
+	source := `{ $count ->
+    [one] One message for { $user }
+   *[other] { $count } messages for { $user }
+}`
+	valid := `{ $count ->
+    [one] Un message pour { $user }
+    [many] { $count } messages pour { $user }
+   *[other] { $count } messages pour { $user }
+}`
+	if findings := ProtectedFindings("messages", source, valid, "fr"); len(findings) != 0 {
+		t.Fatalf("valid Fluent target produced findings: %#v", findings)
+	}
+	damaged := strings.Replace(valid, "{ $user }", "{ $account }", 1)
+	if findings := ProtectedFindings("messages", source, damaged, "fr"); len(findings) == 0 {
+		t.Fatal("damaged Fluent target was accepted")
 	}
 }
 

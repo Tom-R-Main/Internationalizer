@@ -34,11 +34,7 @@ func (a *Anthropic) Name() string { return "anthropic" }
 
 func (a *Anthropic) Translate(ctx context.Context, req TranslateRequest) (*TranslateResponse, error) {
 	// Build the user message as a JSON object of keys to translate.
-	input := make(map[string]string, len(req.Entries))
-	for _, e := range req.Entries {
-		input[e.Key] = e.Value
-	}
-	inputJSON, err := json.Marshal(input)
+	inputJSON, err := marshalEntries(req.Entries)
 	if err != nil {
 		return nil, fmt.Errorf("marshal input: %w", err)
 	}

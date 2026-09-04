@@ -88,10 +88,6 @@ func UnitValues(units []Unit) map[string]string {
 // MergeUnitValues preserves baseline unit metadata while replacing values and
 // appending source units absent from a new target document.
 func MergeUnitValues(baseline, source []Unit, values map[string]string) []Unit {
-	sourceByID := make(map[string]Unit, len(source))
-	for _, unit := range source {
-		sourceByID[unit.ID] = unit
-	}
 	merged := make([]Unit, 0, len(values))
 	seen := make(map[string]struct{}, len(values))
 	for _, unit := range baseline {
@@ -103,6 +99,18 @@ func MergeUnitValues(baseline, source []Unit, values map[string]string) []Unit {
 		merged = append(merged, unit)
 		seen[unit.ID] = struct{}{}
 	}
+	for _, sourceUnit := range source {
+		if _, ok := seen[sourceUnit.ID]; ok {
+			continue
+		}
+		value, ok := values[sourceUnit.ID]
+		if !ok {
+			continue
+		}
+		sourceUnit.Value = value
+		merged = append(merged, sourceUnit)
+		seen[sourceUnit.ID] = struct{}{}
+	}
 	missing := make([]string, 0)
 	for id := range values {
 		if _, ok := seen[id]; !ok {
@@ -111,10 +119,7 @@ func MergeUnitValues(baseline, source []Unit, values map[string]string) []Unit {
 	}
 	sort.Strings(missing)
 	for _, id := range missing {
-		unit, ok := sourceByID[id]
-		if !ok {
-			unit = Unit{ID: id, Kind: UnitMessage}
-		}
+		unit := Unit{ID: id, Kind: UnitMessage}
 		unit.Value = values[id]
 		merged = append(merged, unit)
 	}

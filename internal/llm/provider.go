@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -11,8 +12,9 @@ import (
 
 // Entry is a source key-value pair to be translated.
 type Entry struct {
-	Key   string
-	Value string
+	Key     string
+	Value   string
+	Context string
 }
 
 // TranslateRequest is the input to a translation call.
@@ -125,6 +127,34 @@ func BuildSystemPrompt(sourceLocale, targetLocale, styleGuide string, terms []gl
 	}
 
 	return b.String()
+}
+
+// BuildFluentPrompt constructs the translation contract for semantic units
+// extracted from a Fluent resource.
+func BuildFluentPrompt(sourceLocale, targetLocale, styleGuide string, terms []glossary.Term) string {
+	prompt := BuildSystemPrompt(sourceLocale, targetLocale, styleGuide, terms)
+	prompt += "\n## Fluent rules\n"
+	prompt += "- Input values with developer context are objects; translate only their value and still return a string.\n"
+	prompt += "- Developer context is authoritative translator guidance, not text to translate.\n"
+	prompt += "- Preserve Fluent variables, terms, message references, functions, and named markup slots exactly.\n"
+	prompt += "- Preserve every source selector variant and its default marker; add target-locale plural variants when required.\n"
+	prompt += "- Translate only the natural-language content inside each pattern.\n"
+	return prompt
+}
+
+func marshalEntries(entries []Entry) ([]byte, error) {
+	input := make(map[string]interface{}, len(entries))
+	for _, entry := range entries {
+		if entry.Context == "" {
+			input[entry.Key] = entry.Value
+			continue
+		}
+		input[entry.Key] = struct {
+			Value   string `json:"value"`
+			Context string `json:"context"`
+		}{Value: entry.Value, Context: entry.Context}
+	}
+	return json.Marshal(input)
 }
 
 // BuildDocumentPrompt constructs a prompt for whole-document translation (e.g. Markdown).

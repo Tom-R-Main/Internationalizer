@@ -313,14 +313,19 @@ func translateLocale(
 	}
 
 	keys := sortedKeys(sourceKeys)
+	sourceUnits := make(map[string]formats.Unit, len(bundle.sourceUnits))
+	for _, unit := range bundle.sourceUnits {
+		sourceUnits[unit.ID] = unit
+	}
 	plans := make([]plannedEntry, 0, len(keys))
 	for _, key := range keys {
 		sourceValue := sourceKeys[key]
-		sourceHash := state.SourceHash(bundle.format.Name(), sourceValue)
+		sourceUnit := sourceUnits[key]
+		sourceHash := state.SourceUnitHash(bundle.format.Name(), sourceValue, sourceUnit.Context, sourceUnit.Structure)
 		targetValue, exists := targetKeys[key]
 		recorded, recordedOK := manifest.Get(bundle.bundle.ID, key, locale)
 		entryState := classify(exists, targetValue, sourceHash, policyHash, recorded, recordedOK)
-		plans = append(plans, plannedEntry{key: key, source: sourceValue, sourceHash: sourceHash, state: entryState})
+		plans = append(plans, plannedEntry{key: key, source: sourceValue, context: sourceUnit.Context, sourceHash: sourceHash, state: entryState})
 		result.addState(entryState)
 	}
 	if opts.AdoptExisting {
@@ -383,7 +388,7 @@ func translateLocale(
 		batchPlans := toTranslate[i:end]
 		entries := make([]llm.Entry, len(batchPlans))
 		for j, plan := range batchPlans {
-			entries[j] = llm.Entry{Key: plan.key, Value: plan.source}
+			entries[j] = llm.Entry{Key: plan.key, Value: plan.source, Context: plan.context}
 		}
 
 		response, err := provider.Translate(ctx, llm.TranslateRequest{
@@ -536,6 +541,7 @@ type translationOrigin struct {
 type plannedEntry struct {
 	key        string
 	source     string
+	context    string
 	sourceHash string
 	state      entryState
 }

@@ -119,7 +119,7 @@ func Generate(cfg *config.Config, opts GenerateOptions) ([]GenerateResult, error
 				Bundle:       bundle.ID,
 				Key:          sourceUnit.ID,
 				Locale:       canonicalLocale,
-				SourceHash:   state.SourceHash(format.Name(), sourceUnit.Value),
+				SourceHash:   state.SourceUnitHash(format.Name(), sourceUnit.Value, sourceUnit.Context, sourceUnit.Structure),
 				PolicyHash:   policyHash,
 				TargetHash:   state.TargetHash(pseudoUnits[index].Value),
 				Origin:       "pseudo",

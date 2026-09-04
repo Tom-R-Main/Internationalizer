@@ -38,8 +38,11 @@ func Resolve(cfg *config.Config, targetLocale, format, styleGuide string, terms 
 
 	effectiveLLM := cfg.LLMForLocale(canonicalTarget)
 	prompt := llm.BuildSystemPrompt(canonicalSource, canonicalTarget, styleGuide, terms)
-	if format == "markdown" {
+	switch format {
+	case "markdown":
 		prompt = llm.BuildDocumentPrompt(canonicalSource, canonicalTarget, styleGuide, terms)
+	case "fluent":
+		prompt = llm.BuildFluentPrompt(canonicalSource, canonicalTarget, styleGuide, terms)
 	}
 
 	hash, err := state.HashValue(struct {

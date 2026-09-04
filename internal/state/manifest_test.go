@@ -115,6 +115,18 @@ func TestHashesSeparateSourceFormatAndPolicy(t *testing.T) {
 	}
 }
 
+func TestSourceUnitHashTracksTranslatorContextWithoutChangingFlatIdentity(t *testing.T) {
+	legacy := SourceHash("json", "Save")
+	if got := SourceUnitHash("json", "Save", "", ""); got != legacy {
+		t.Fatalf("flat unit hash = %q, want legacy %q", got, legacy)
+	}
+	first := SourceUnitHash("fluent", "Open", "Verb used on a button.", "fluent-pattern-v1")
+	second := SourceUnitHash("fluent", "Open", "Noun shown in a menu.", "fluent-pattern-v1")
+	if first == second {
+		t.Fatal("translator context did not affect source unit hash")
+	}
+}
+
 func TestManifestIdentityCanonicalizesLocale(t *testing.T) {
 	manifest := New()
 	entry := Entry{Bundle: "app", Key: "save", Locale: "pt-br"}

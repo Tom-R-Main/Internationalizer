@@ -118,7 +118,7 @@ func ValidateWithOptions(cfg *config.Config, opts Options) ([]Report, error) {
 				policyHash = resolved.Hash
 			}
 
-			report := validateLocale(bundle.ID, cfg.SourceLocale, locale, sourceKeys, targetPath, format, terms, manifest, policyHash, cfg.Validation.PluralStyle, opts)
+			report := validateLocale(bundle.ID, cfg.SourceLocale, locale, sourceUnits, sourceKeys, targetPath, format, terms, manifest, policyHash, cfg.Validation.PluralStyle, opts)
 			reports = append(reports, report)
 		}
 	}
@@ -132,7 +132,7 @@ func formatForBundle(bundle config.Bundle) (formats.Format, error) {
 	return formats.FormatForFile(bundle.Source)
 }
 
-func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]string, targetPath string, format formats.Format, terms []glossary.Term, manifest *state.Manifest, policyHash, pluralStyle string, opts Options) Report {
+func validateLocale(bundle, sourceLocale, locale string, sourceUnits []formats.Unit, sourceKeys map[string]string, targetPath string, format formats.Format, terms []glossary.Term, manifest *state.Manifest, policyHash, pluralStyle string, opts Options) Report {
 	report := Report{Bundle: bundle, Locale: locale, TargetPath: targetPath}
 	if opts.Strict {
 		translated := 0.0
@@ -174,6 +174,10 @@ func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]s
 		return report
 	}
 	targetKeys := formats.UnitValues(targetUnits)
+	sourceUnitsByID := make(map[string]formats.Unit, len(sourceUnits))
+	for _, unit := range sourceUnits {
+		sourceUnitsByID[unit.ID] = unit
+	}
 
 	present := 0
 	translated := 0
@@ -223,7 +227,9 @@ func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]s
 			report.Findings = append(report.Findings, glossaryFindings(key, sourceValue, targetValue, terms)...)
 		}
 		if opts.RequireState {
-			report.Findings = append(report.Findings, provenanceFindings(bundle, key, locale, format.Name(), sourceValue, targetValue, policyHash, manifest, opts.RequireApproved)...)
+			sourceUnit := sourceUnitsByID[key]
+			sourceUnit.Value = sourceValue
+			report.Findings = append(report.Findings, provenanceFindings(bundle, key, locale, format.Name(), sourceUnit, targetValue, policyHash, manifest, opts.RequireApproved)...)
 		}
 	}
 
@@ -295,13 +301,13 @@ func missingFinding(key string, requiredPluralKeys map[string]struct{}) Finding 
 	return Finding{Code: CodeMissingKey, Severity: SeverityError, Key: key, Message: "target key is missing"}
 }
 
-func provenanceFindings(bundle, key, locale, format, source, target, policyHash string, manifest *state.Manifest, requireApproved bool) []Finding {
+func provenanceFindings(bundle, key, locale, format string, source formats.Unit, target, policyHash string, manifest *state.Manifest, requireApproved bool) []Finding {
 	recorded, ok := manifest.Get(bundle, key, locale)
 	if !ok {
 		return []Finding{{Code: CodeUntracked, Severity: SeverityError, Key: key, Message: "target has no manifest provenance"}}
 	}
 	var findings []Finding
-	if recorded.SourceHash != state.SourceHash(format, source) {
+	if recorded.SourceHash != state.SourceUnitHash(format, source.Value, source.Context, source.Structure) {
 		findings = append(findings, Finding{Code: CodeSourceStale, Severity: SeverityError, Key: key, Message: "source changed after the recorded translation"})
 	}
 	if recorded.PolicyHash != policyHash {

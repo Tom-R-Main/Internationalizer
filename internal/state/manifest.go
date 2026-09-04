@@ -183,6 +183,16 @@ func SourceHash(format, source string) string {
 	return hashBytes([]byte(canonical))
 }
 
+// SourceUnitHash also binds translator context and adapter-owned structure to
+// provenance. Flat legacy units retain their existing SourceHash identity.
+func SourceUnitHash(format, value, context, structure string) string {
+	if context == "" && structure == "" {
+		return SourceHash(format, value)
+	}
+	canonical := fmt.Sprintf("2:%d:%s:%d:%s:%d:%s:%d:%s", len(format), format, len(value), value, len(context), context, len(structure), structure)
+	return hashBytes([]byte(canonical))
+}
+
 // TargetHash records the exact translated value last applied or adopted.
 func TargetHash(target string) string {
 	return hashBytes([]byte(target))

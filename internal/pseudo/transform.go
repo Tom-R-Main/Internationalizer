@@ -9,6 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/Tom-R-Main/Internationalizer/internal/fluentpattern"
 	"github.com/Tom-R-Main/Internationalizer/internal/message"
 )
 
@@ -37,7 +38,12 @@ func Transform(input string, strategy Strategy) (string, error) {
 	}
 	output := ""
 	var err error
-	if message.LooksLike(input) {
+	if fluentpattern.LooksLike(input) {
+		output, err = fluentpattern.TransformText(input, transformLiteral)
+		if err != nil {
+			return "", fmt.Errorf("pseudolocalizing Fluent pattern: %w", err)
+		}
+	} else if message.LooksLike(input) {
 		output, err = message.TransformText(input, transformLiteral)
 		if err != nil {
 			return "", fmt.Errorf("pseudolocalizing ICU message: %w", err)

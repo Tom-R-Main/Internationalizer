@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Tom-R-Main/Internationalizer/internal/fluentpattern"
 	"github.com/Tom-R-Main/Internationalizer/internal/message"
 )
 
@@ -21,6 +22,15 @@ func ProtectedFindings(key, source, target, targetLocale string) []Finding {
 	if !icu {
 		if mismatch := InterpolationMismatch(key, source, target); mismatch != nil {
 			findings = append(findings, protectedFinding(key, "interpolation variables", mismatch.SourceVars, mismatch.TargetVars))
+		}
+		if fluentpattern.LooksLike(source) || fluentpattern.LooksLike(target) {
+			expected, actual, preserved, err := fluentpattern.Compare(source, target)
+			if err != nil {
+				actual = []string{err.Error()}
+			}
+			if err != nil || !preserved {
+				findings = append(findings, protectedFinding(key, "Fluent pattern", expected, actual))
+			}
 		}
 	}
 	checks := []struct {
