@@ -13,6 +13,7 @@ func FuzzJSONParseSerializeRoundTrip(f *testing.F) {
 		[]byte(`{"items":["One","Two"],"enabled":true,"count":2,"empty":null}`),
 		[]byte(`{"numeric":{"0":"Zero"}}`),
 		[]byte(`{"nested":{"welcome":"Hello, {name}"}}`),
+		[]byte(`"Save"`),
 		[]byte(`not JSON`),
 	} {
 		f.Add(seed)

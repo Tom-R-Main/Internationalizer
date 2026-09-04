@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/Tom-R-Main/Internationalizer/internal/message"
 )
 
 var (
@@ -16,8 +18,10 @@ var (
 // findings with the same stable code and distinct messages.
 func ProtectedFindings(key, source, target string) []Finding {
 	var findings []Finding
-	if mismatch := InterpolationMismatch(key, source, target); mismatch != nil {
-		findings = append(findings, protectedFinding(key, "interpolation variables", mismatch.SourceVars, mismatch.TargetVars))
+	if !usesICUValidation(source, target) {
+		if mismatch := InterpolationMismatch(key, source, target); mismatch != nil {
+			findings = append(findings, protectedFinding(key, "interpolation variables", mismatch.SourceVars, mismatch.TargetVars))
+		}
 	}
 	if sourceTags, targetTags := htmlTagRe.FindAllString(source, -1), htmlTagRe.FindAllString(target, -1); !equalStrings(sourceTags, targetTags) {
 		findings = append(findings, protectedFinding(key, "HTML structure", sourceTags, targetTags))
@@ -32,6 +36,17 @@ func ProtectedFindings(key, source, target string) []Finding {
 		findings = append(findings, protectedFinding(key, "markdown link destinations", sourceLinks, targetLinks))
 	}
 	return findings
+}
+
+func usesICUValidation(source, target string) bool {
+	if !message.LooksLike(source) || !message.LooksLike(target) {
+		return false
+	}
+	if _, err := message.Parse(source); err != nil {
+		return false
+	}
+	_, err := message.Parse(target)
+	return err == nil
 }
 
 func protectedFinding(key, structure string, expected, actual []string) Finding {

@@ -136,6 +136,16 @@ func TestValidateAllowsLocalePluralBranchesAndExactSelectors(t *testing.T) {
 	}
 }
 
+func TestValidateUsesBranchAwareICUArgumentsInsteadOfFlatInterpolationCounts(t *testing.T) {
+	report := validateMessagePair(t, "ru",
+		`{count, plural, one {{name} has one item} other {{name} has # items}}`,
+		`{count, plural, one {{name} имеет один предмет} few {{name} имеет # предмета} many {{name} имеет # предметов} other {{name} имеет # предмета}}`,
+	)
+	if len(report.Mismatches) != 0 || HasFailures([]Report{report}) {
+		t.Fatalf("valid target-only ICU branches reported as failure: %#v", report)
+	}
+}
+
 func TestValidateReportsMalformedICUSourceWithoutTarget(t *testing.T) {
 	dir := t.TempDir()
 	sourcePath := filepath.Join(dir, "en.json")
@@ -148,6 +158,25 @@ func TestValidateReportsMalformedICUSourceWithoutTarget(t *testing.T) {
 	}
 	if len(reports) != 1 || !reportHasFinding(reports[0], CodeICUMessageSyntax) {
 		t.Fatalf("reports = %#v, want source syntax finding", reports)
+	}
+}
+
+func TestValidateSortsFindingsWhenTargetIsMissing(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "en.json")
+	if err := os.WriteFile(sourcePath, []byte(`{"z":"{n, plural, one {One}}","a":"{n, plural, one {One}}"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reports, err := Validate(&config.Config{SourceLocale: "en", TargetLocales: []string{"fr"}, SourcePath: sourcePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 || len(reports[0].Findings) != 4 {
+		t.Fatalf("reports = %#v, want four findings", reports)
+	}
+	got := reports[0].Findings
+	if got[0].Key != "a" || got[1].Key != "a" || got[2].Key != "z" || got[3].Key != "z" {
+		t.Fatalf("finding keys = [%q %q %q %q], want deterministic key order", got[0].Key, got[1].Key, got[2].Key, got[3].Key)
 	}
 }
 

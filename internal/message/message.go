@@ -4,7 +4,6 @@ package message
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -71,7 +70,7 @@ type Argument struct {
 	Name    string
 	Type    ArgumentType
 	Style   string
-	Offset  int
+	Offset  string
 	Options []Option
 }
 
@@ -237,7 +236,7 @@ func argumentSortKey(argument *Argument) string {
 		options = append(options, option.Selector+"{"+messageSortKey(option.Message)+"}")
 	}
 	sort.Strings(options)
-	return fmt.Sprintf("%s\x00%s\x00%020d\x00%s", argument.Type, argument.Style, argument.Offset, strings.Join(options, "\x00"))
+	return fmt.Sprintf("%s\x00%s\x00%s\x00%s", argument.Type, argument.Style, argument.Offset, strings.Join(options, "\x00"))
 }
 
 func messageSortKey(message *Message) string {
@@ -449,9 +448,22 @@ func normalizeExactSelector(selector string) (string, bool) {
 	if !strings.HasPrefix(selector, "=") || len(selector) == 1 {
 		return "", false
 	}
-	number := selector[1:]
+	canonical, ok := normalizeNumber(selector[1:], true)
+	if !ok {
+		return "", false
+	}
+	return "=" + canonical, true
+}
+
+func normalizeNumber(number string, allowNegative bool) (string, bool) {
+	if number == "" {
+		return "", false
+	}
 	negative := false
 	if number[0] == '-' {
+		if !allowNegative {
+			return "", false
+		}
 		negative = true
 		number = number[1:]
 	}
@@ -484,7 +496,7 @@ func normalizeExactSelector(selector string) (string, bool) {
 	if integer == "0" && fraction == "" {
 		negative = false
 	}
-	canonical := "="
+	canonical := ""
 	if negative {
 		canonical += "-"
 	}
@@ -655,17 +667,16 @@ func (p *parser) parseArgument(pluralContext bool) (*Argument, error) {
 			p.position += len("offset:")
 			p.skipSpace()
 			start := p.position
-			for p.position < len(p.input) && p.input[p.position] >= '0' && p.input[p.position] <= '9' {
+			for p.position < len(p.input) && (p.input[p.position] >= '0' && p.input[p.position] <= '9' || p.input[p.position] == '.') {
 				p.position++
 			}
-			if start == p.position {
-				return nil, p.errorf("plural offset must be a non-negative integer")
+			offset, ok := normalizeNumber(p.input[start:p.position], false)
+			if !ok {
+				return nil, p.errorf("plural offset must be a non-negative finite number")
 			}
-			offset, err := strconv.Atoi(p.input[start:p.position])
-			if err != nil {
-				return nil, p.errorf("invalid plural offset")
+			if offset != "0" {
+				argument.Offset = offset
 			}
-			argument.Offset = offset
 			p.skipSpace()
 		}
 	}
@@ -797,7 +808,7 @@ func isIdentifier(input string) bool {
 
 func spaceWidth(input string, position int) int {
 	character, width := utf8.DecodeRuneInString(input[position:])
-	if character == utf8.RuneError && width == 1 || !unicode.IsSpace(character) {
+	if character == utf8.RuneError && width == 1 || !unicode.Is(unicode.Pattern_White_Space, character) {
 		return 0
 	}
 	return width
@@ -853,8 +864,8 @@ func (argument *Argument) writeTo(output *strings.Builder, pluralContext bool) {
 		return
 	}
 	output.WriteString(", ")
-	if argument.Offset != 0 {
-		_, _ = fmt.Fprintf(output, "offset:%d ", argument.Offset)
+	if argument.Offset != "" {
+		_, _ = fmt.Fprintf(output, "offset:%s ", argument.Offset)
 	}
 	options := append([]Option(nil), argument.Options...)
 	sort.SliceStable(options, func(left, right int) bool { return options[left].Selector < options[right].Selector })

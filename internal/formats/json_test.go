@@ -68,6 +68,22 @@ func TestJSONParseExcludesNonStringLeaves(t *testing.T) {
 	}
 }
 
+func TestJSONRoundTripsRootString(t *testing.T) {
+	f := &JSONFormat{}
+	entries, err := f.Parse([]byte(`"Save"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries[""] = "Enregistrer"
+	output, err := f.Serialize(entries, []byte(`"Save"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(output) != `"Enregistrer"` {
+		t.Fatalf("Serialize() = %s, want translated root string", output)
+	}
+}
+
 func TestJSONSerializePreservesOrder(t *testing.T) {
 	original := `{
   "b": "B",

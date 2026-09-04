@@ -142,6 +142,43 @@ func TestParseAllowsWhitespaceAfterPluralOffsetColon(t *testing.T) {
 	}
 }
 
+func TestParsePreservesDecimalPluralOffsets(t *testing.T) {
+	parsed, err := Parse("{n, plural, offset:00.500 one {One} other {# items}}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.String(); !strings.Contains(got, "offset:0.5 ") {
+		t.Fatalf("String() = %q, want canonical decimal offset", got)
+	}
+	if issues := Compare(
+		"{n, plural, offset:0.5 one {One} other {# items}}",
+		"{n, plural, offset:00.500 one {Un} other {# articles}}",
+		"fr",
+	); len(issues) != 0 {
+		t.Fatalf("Compare rejected equivalent decimal offsets: %#v", issues)
+	}
+	if issues := Compare(
+		"{n, plural, offset:0.5 one {One} other {# items}}",
+		"{n, plural, offset:1 one {Un} other {# articles}}",
+		"fr",
+	); !hasCode(issues, CodeSelectorMismatch) {
+		t.Fatalf("Compare issues = %#v, want decimal offset mismatch", issues)
+	}
+}
+
+func TestParseUsesICUPatternWhitespace(t *testing.T) {
+	if _, err := Parse("{\u200ename\u200e,\u200eplural\u200e,\u200eone {One} other {Other}}"); err != nil {
+		t.Fatalf("Parse rejected Pattern_White_Space separator: %v", err)
+	}
+	parsed, err := Parse("{\u00a0name, plural, one {One} other {Other}}")
+	if err != nil {
+		t.Fatalf("Parse rejected NBSP as part of an ICU identifier: %v", err)
+	}
+	if got := parsed.String(); !strings.HasPrefix(got, "{\u00a0name,") {
+		t.Fatalf("String() = %q, NBSP was incorrectly consumed as syntax whitespace", got)
+	}
+}
+
 func TestParseValidatesSelectKeywords(t *testing.T) {
 	if _, err := Parse("{g, select, male,female {x} other {y}}"); err == nil {
 		t.Fatal("Parse accepted punctuation in select keyword")

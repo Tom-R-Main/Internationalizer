@@ -141,7 +141,8 @@ func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]s
 		validationKeys, requiredPluralKeys, optionalPluralKeys = ExpandI18nextV4Source(sourceKeys, sourceLocale, locale)
 	}
 	sourceICUValid := make(map[string]bool, len(validationKeys))
-	for key, sourceValue := range validationKeys {
+	for _, key := range allKeys(validationKeys) {
+		sourceValue := validationKeys[key]
 		findings := ICUSourceFindings(key, sourceValue, sourceLocale)
 		sourceICUValid[key] = len(findings) == 0
 		report.Findings = append(report.Findings, findings...)
@@ -156,6 +157,7 @@ func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]s
 			report.Missing = append(report.Missing, key)
 			report.Findings = append(report.Findings, missingFinding(key, requiredPluralKeys))
 		}
+		sortFindings(report.Findings)
 		return report
 	}
 
@@ -163,6 +165,7 @@ func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]s
 	if err != nil {
 		report.Missing = allKeys(validationKeys)
 		report.Errors = append(report.Errors, fmt.Sprintf("parsing target: %v", err))
+		sortFindings(report.Findings)
 		return report
 	}
 
@@ -201,8 +204,10 @@ func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]s
 			report.Findings = append(report.Findings, Finding{Code: CodeSourceIdentical, Severity: SeverityError, Key: key, Message: "target is identical to the source without an exact glossary exemption"})
 		}
 
-		if mismatch := InterpolationMismatch(key, sourceValue, targetValue); mismatch != nil {
-			report.Mismatches = append(report.Mismatches, *mismatch)
+		if !usesICUValidation(sourceValue, targetValue) {
+			if mismatch := InterpolationMismatch(key, sourceValue, targetValue); mismatch != nil {
+				report.Mismatches = append(report.Mismatches, *mismatch)
+			}
 		}
 		if sourceICUValid[key] {
 			report.Findings = append(report.Findings, ICUFindings(key, sourceValue, targetValue, locale)...)

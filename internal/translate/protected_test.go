@@ -22,3 +22,11 @@ func TestValidateTranslationValuePreservesProtectedMarkdown(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateTranslationValueAllowsTargetOnlyICUPluralBranches(t *testing.T) {
+	source := `{count, plural, one {{name} has one item} other {{name} has # items}}`
+	target := `{count, plural, one {{name} имеет один предмет} few {{name} имеет # предмета} many {{name} имеет # предметов} other {{name} имеет # предмета}}`
+	if err := validateTranslationValue("items", source, target, "ru"); err != nil {
+		t.Fatalf("valid target-only ICU branches were rejected: %v", err)
+	}
+}
