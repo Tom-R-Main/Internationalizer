@@ -113,7 +113,7 @@ func ValidateWithOptions(cfg *config.Config, opts Options) ([]Report, error) {
 				policyHash = resolved.Hash
 			}
 
-			report := validateLocale(bundle.ID, cfg.SourceLocale, locale, sourceKeys, targetPath, format, terms, manifest, policyHash, cfg.Validation.PluralStyle, opts)
+			report := validateLocale(bundle.ID, cfg.SourceLocale, locale, sourceData, sourceKeys, targetPath, format, terms, manifest, policyHash, cfg.Validation.PluralStyle, opts)
 			reports = append(reports, report)
 		}
 	}
@@ -127,7 +127,7 @@ func formatForBundle(bundle config.Bundle) (formats.Format, error) {
 	return formats.FormatForFile(bundle.Source)
 }
 
-func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]string, targetPath string, format formats.Format, terms []glossary.Term, manifest *state.Manifest, policyHash, pluralStyle string, opts Options) Report {
+func validateLocale(bundle, sourceLocale, locale string, sourceData []byte, sourceKeys map[string]string, targetPath string, format formats.Format, terms []glossary.Term, manifest *state.Manifest, policyHash, pluralStyle string, opts Options) Report {
 	report := Report{Bundle: bundle, Locale: locale, TargetPath: targetPath}
 	if opts.Strict {
 		translated := 0.0
@@ -161,7 +161,7 @@ func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]s
 		return report
 	}
 
-	targetKeys, err := format.Parse(targetData)
+	targetKeys, err := parseTarget(format, sourceData, targetData)
 	if err != nil {
 		report.Missing = allKeys(validationKeys)
 		report.Errors = append(report.Errors, fmt.Sprintf("parsing target: %v", err))
@@ -248,6 +248,13 @@ func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]s
 		}
 	}
 	return report
+}
+
+func parseTarget(format formats.Format, source, target []byte) (map[string]string, error) {
+	if paired, ok := format.(formats.PairedFormat); ok {
+		return paired.ParseTarget(source, target)
+	}
+	return format.Parse(target)
 }
 
 // ICUFindings compares ICU MessageFormat structure independently of linguistic

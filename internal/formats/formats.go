@@ -18,6 +18,14 @@ type Format interface {
 	Serialize(entries map[string]string, original []byte) ([]byte, error)
 }
 
+// PairedFormat uses source structure when reading and writing a translated
+// target. This lets document formats retain stable semantic unit identities
+// even when headings and prose are translated.
+type PairedFormat interface {
+	ParseTarget(source, target []byte) (map[string]string, error)
+	SerializeTarget(entries map[string]string, source, target []byte) ([]byte, error)
+}
+
 // EntryRemover is implemented by structured formats that can remove selected
 // string leaves while preserving the rest of the original document shape.
 type EntryRemover interface {
