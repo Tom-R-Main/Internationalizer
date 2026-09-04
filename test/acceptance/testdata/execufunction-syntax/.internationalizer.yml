@@ -1,0 +1,11 @@
+source_locale: en
+target_locales: [fr]
+message_syntax: i18next
+bundles:
+  - id: web
+    source: web/en.json
+    target: web/{locale}.json
+  - id: icu
+    source: icu/en.json
+    target: icu/{locale}.json
+    message_syntax: icu

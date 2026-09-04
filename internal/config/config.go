@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	localeid "github.com/Tom-R-Main/Internationalizer/internal/locale"
+	"github.com/Tom-R-Main/Internationalizer/internal/message"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,19 +23,20 @@ const (
 )
 
 type Config struct {
-	SourceLocale   string     `yaml:"source_locale"`
-	TargetLocales  []string   `yaml:"target_locales"`
-	SourcePath     string     `yaml:"source_path"`
-	Bundles        []Bundle   `yaml:"bundles"`
-	LLM            LLM        `yaml:"llm"`
-	BatchSize      int        `yaml:"batch_size"`
-	Concurrency    int        `yaml:"concurrency"`
-	StyleGuidesDir string     `yaml:"style_guides_dir"`
-	GlossaryDir    string     `yaml:"glossary_dir"`
-	TMPath         string     `yaml:"tm_path"`
-	ManifestPath   string     `yaml:"manifest_path"`
-	Formats        []string   `yaml:"formats"`
-	Validation     Validation `yaml:"validation"`
+	MessageSyntax  message.Syntax `yaml:"message_syntax"`
+	SourceLocale   string         `yaml:"source_locale"`
+	TargetLocales  []string       `yaml:"target_locales"`
+	SourcePath     string         `yaml:"source_path"`
+	Bundles        []Bundle       `yaml:"bundles"`
+	LLM            LLM            `yaml:"llm"`
+	BatchSize      int            `yaml:"batch_size"`
+	Concurrency    int            `yaml:"concurrency"`
+	StyleGuidesDir string         `yaml:"style_guides_dir"`
+	GlossaryDir    string         `yaml:"glossary_dir"`
+	TMPath         string         `yaml:"tm_path"`
+	ManifestPath   string         `yaml:"manifest_path"`
+	Formats        []string       `yaml:"formats"`
+	Validation     Validation     `yaml:"validation"`
 }
 
 // Validation configures optional project-specific validation rules.
@@ -45,10 +47,11 @@ type Validation struct {
 // Bundle maps one source file to a locale-specific target path.
 // Target must contain the literal {locale} placeholder.
 type Bundle struct {
-	ID     string `yaml:"id"` // required stable identity for explicit bundles
-	Source string `yaml:"source"`
-	Target string `yaml:"target"`
-	Format string `yaml:"format"`
+	MessageSyntax message.Syntax `yaml:"message_syntax"`
+	ID            string         `yaml:"id"` // required stable identity for explicit bundles
+	Source        string         `yaml:"source"`
+	Target        string         `yaml:"target"`
+	Format        string         `yaml:"format"`
 }
 
 type LLM struct {
@@ -71,6 +74,9 @@ type LLMOverride struct {
 }
 
 func (c *Config) ApplyDefaults() {
+	if c.MessageSyntax == "" {
+		c.MessageSyntax = message.Auto
+	}
 	if c.SourceLocale == "" {
 		c.SourceLocale = "en"
 	}
@@ -237,12 +243,29 @@ func (c *Config) ValidateProject() error {
 		}
 	}
 	bundles := c.EffectiveBundles()
+	if err := message.ValidateSyntax(c.MessageSyntax); err != nil {
+		return err
+	}
 	if len(bundles) == 0 {
 		return fmt.Errorf("source_path or bundles is required")
 	}
 	seen := make(map[string]struct{}, len(bundles))
 	targets := make(map[string]string, len(bundles)*len(c.TargetLocales))
 	for _, bundle := range bundles {
+		if err := message.ValidateSyntax(bundle.MessageSyntax); err != nil {
+			return fmt.Errorf("bundle %q: %w", bundle.ID, err)
+		}
+		format := strings.ToLower(bundle.Format)
+		extension := strings.ToLower(filepath.Ext(bundle.Source))
+		if format == "" && extension == ".ftl" {
+			format = "fluent"
+		}
+		if format == "fluent" && bundle.MessageSyntax != "" && bundle.MessageSyntax != message.Auto {
+			return fmt.Errorf("bundle %q: Fluent resources require message_syntax: auto", bundle.ID)
+		}
+		if (format == "markdown" || (format == "" && (extension == ".md" || extension == ".mdx"))) && bundle.MessageSyntax == message.ICU {
+			return fmt.Errorf("bundle %q: Markdown documents cannot use message_syntax: icu", bundle.ID)
+		}
 		if bundle.ID == "" {
 			return fmt.Errorf("explicit bundle id is required")
 		}
@@ -320,15 +343,21 @@ func (c *Config) EffectiveBundles() []Bundle {
 	if len(c.Bundles) > 0 {
 		bundles := make([]Bundle, len(c.Bundles))
 		copy(bundles, c.Bundles)
+		for i := range bundles {
+			if bundles[i].MessageSyntax == "" {
+				bundles[i].MessageSyntax = c.MessageSyntax
+			}
+		}
 		return bundles
 	}
 	if c.SourcePath == "" {
 		return nil
 	}
 	return []Bundle{{
-		ID:     "default",
-		Source: c.SourcePath,
-		Target: filepath.Join(filepath.Dir(c.SourcePath), "{locale}"+filepath.Ext(c.SourcePath)),
+		MessageSyntax: c.MessageSyntax,
+		ID:            "default",
+		Source:        c.SourcePath,
+		Target:        filepath.Join(filepath.Dir(c.SourcePath), "{locale}"+filepath.Ext(c.SourcePath)),
 	}}
 }
 
@@ -341,6 +370,19 @@ func (b Bundle) TargetPath(locale string) (string, error) {
 		return "", fmt.Errorf("bundle %q target must contain {locale}", b.ID)
 	}
 	return filepath.Clean(strings.ReplaceAll(b.Target, "{locale}", locale)), nil
+}
+
+// PluralStyle uses v4 key families for i18next; explicit non-i18next grammars
+// must not reinterpret keys just because they end in a plural suffix.
+func (b Bundle) PluralStyle(legacyStyle string) string {
+	switch b.MessageSyntax {
+	case message.I18next:
+		return "i18next-v4"
+	case "", message.Auto:
+		return legacyStyle
+	default:
+		return ""
+	}
 }
 
 func localeOverride(overrides map[string]LLMOverride, requested string) (LLMOverride, bool) {

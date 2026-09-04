@@ -28,6 +28,9 @@ type Options struct {
 // Report holds validation results for a single locale. Coverage remains a
 // compatibility alias for StructuralCoverage.
 type Report struct {
+	SourcePath         string     `json:"source_path,omitempty"`
+	BlockedBySource    bool       `json:"blocked_by_source,omitempty"`
+	BlockedLocales     []string   `json:"blocked_locales,omitempty"`
 	Bundle             string     `json:"bundle"`
 	Locale             string     `json:"locale"`
 	TargetPath         string     `json:"target_path"`
@@ -86,12 +89,18 @@ func ValidateWithOptions(cfg *config.Config, opts Options) ([]Report, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading bundle %q source %s: %w", bundle.ID, bundle.Source, err)
 		}
-		sourceUnits, err := formats.ParseUnits(format, sourceData)
+		sourceUnits, err := formats.ParseSourceUnits(format, sourceData, bundle.MessageSyntax)
 		if err != nil {
 			return nil, fmt.Errorf("parsing bundle %q source: %w", bundle.ID, err)
 		}
 		sourceKeys := formats.UnitValues(sourceUnits)
-		for _, locale := range cfg.TargetLocales {
+		sourceFindings := make(map[string][]Finding)
+		for _, unit := range sourceUnits {
+			if findings := SyntaxSourceFindings(unit.ID, unit.Value, cfg.SourceLocale, unit.Syntax); len(findings) > 0 {
+				sourceFindings[unit.ID] = findings
+			}
+		}
+		for localeIndex, locale := range cfg.TargetLocales {
 			targetPath, err := bundle.TargetPath(locale)
 			if err != nil {
 				return nil, err
@@ -111,14 +120,26 @@ func ValidateWithOptions(cfg *config.Config, opts Options) ([]Report, error) {
 				if loadErr != nil {
 					return nil, loadErr
 				}
-				resolved, resolveErr := policy.Resolve(cfg, locale, format.Name(), guide, terms)
+				resolved, resolveErr := policy.Resolve(cfg, locale, format.Name(), guide, terms, bundle.MessageSyntax)
 				if resolveErr != nil {
 					return nil, fmt.Errorf("hashing translation policy: %w", resolveErr)
 				}
 				policyHash = resolved.Hash
 			}
 
-			report := validateLocale(bundle.ID, cfg.SourceLocale, locale, bundle.Source, sourceData, sourceUnits, sourceKeys, targetPath, format, terms, manifest, policyHash, cfg.Validation.PluralStyle, opts)
+			pluralStyle := bundle.PluralStyle(cfg.Validation.PluralStyle)
+			report := validateLocale(bundle.ID, cfg.SourceLocale, locale, bundle.Source, sourceData, sourceUnits, sourceKeys, targetPath, format, terms, manifest, policyHash, pluralStyle, opts, bundle.MessageSyntax, sourceFindings)
+			if len(sourceFindings) > 0 {
+				report.SourcePath = bundle.Source
+				report.BlockedBySource = true
+				if localeIndex == 0 {
+					report.BlockedLocales = cfg.TargetLocales
+					for _, findings := range sourceFindings {
+						report.Findings = append(report.Findings, findings...)
+					}
+					sortFindings(report.Findings)
+				}
+			}
 			reports = append(reports, report)
 		}
 	}
@@ -132,7 +153,7 @@ func formatForBundle(bundle config.Bundle) (formats.Format, error) {
 	return formats.FormatForFile(bundle.Source)
 }
 
-func validateLocale(bundle, sourceLocale, locale, sourcePath string, sourceData []byte, sourceUnits []formats.Unit, sourceKeys map[string]string, targetPath string, format formats.Format, terms []glossary.Term, manifest *state.Manifest, policyHash, pluralStyle string, opts Options) Report {
+func validateLocale(bundle, sourceLocale, locale, sourcePath string, sourceData []byte, sourceUnits []formats.Unit, sourceKeys map[string]string, targetPath string, format formats.Format, terms []glossary.Term, manifest *state.Manifest, policyHash, pluralStyle string, opts Options, syntaxPolicy message.Syntax, sourceFindings map[string][]Finding) Report {
 	report := Report{Bundle: bundle, Locale: locale, TargetPath: targetPath}
 	if opts.Strict {
 		translated := 0.0
@@ -142,19 +163,22 @@ func validateLocale(bundle, sourceLocale, locale, sourcePath string, sourceData 
 	validationKeys := sourceKeys
 	requiredPluralKeys := make(map[string]struct{})
 	optionalPluralKeys := make(map[string]struct{})
-	if (opts.Strict || opts.RequireState) && pluralStyle == "i18next-v4" {
+	if (opts.Strict || opts.RequireState || syntaxPolicy == message.I18next) && pluralStyle == "i18next-v4" {
 		validationKeys, requiredPluralKeys, optionalPluralKeys = ExpandI18nextV4Source(sourceKeys, sourceLocale, locale)
 	}
 	sourceICUValid := make(map[string]bool, len(validationKeys))
+	syntaxes := make(map[string]message.Syntax, len(validationKeys))
+	for _, unit := range sourceUnits {
+		syntaxes[unit.ID] = unit.Syntax
+	}
 	document := format.Name() == "markdown"
 	for _, key := range allKeys(validationKeys) {
 		sourceValue := validationKeys[key]
-		var findings []Finding
-		if !document {
-			findings = ICUSourceFindings(key, sourceValue, sourceLocale)
+		if syntaxes[key] == "" {
+			syntaxes[key] = message.ResolveSyntax(format.Name(), syntaxPolicy, sourceValue)
 		}
+		findings := sourceFindings[key]
 		sourceICUValid[key] = len(findings) == 0
-		report.Findings = append(report.Findings, findings...)
 	}
 
 	targetData, err := os.ReadFile(targetPath)
@@ -217,20 +241,20 @@ func validateLocale(bundle, sourceLocale, locale, sourcePath string, sourceData 
 			report.Findings = append(report.Findings, Finding{Code: CodeSourceIdentical, Severity: SeverityError, Key: key, Message: "target is identical to the source without an exact glossary exemption"})
 		}
 
-		if !usesICUValidation(sourceValue, targetValue) {
-			if mismatch := InterpolationMismatch(key, sourceValue, targetValue); mismatch != nil {
-				report.Mismatches = append(report.Mismatches, *mismatch)
-			}
+		if mismatch := SyntaxInterpolationMismatch(key, sourceValue, targetValue, syntaxes[key]); mismatch != nil {
+			report.Mismatches = append(report.Mismatches, *mismatch)
 		}
 		if sourceICUValid[key] && !document {
-			report.Findings = append(report.Findings, ICUFindings(key, sourceValue, targetValue, locale)...)
+			report.Findings = append(report.Findings, SyntaxFindings(key, sourceValue, targetValue, locale, syntaxes[key])...)
+		}
+		if opts.Strict || opts.RequireState || (syntaxPolicy != "" && syntaxPolicy != message.Auto) {
+			if document {
+				report.Findings = append(report.Findings, ProtectedDocumentFindings(key, sourceValue, targetValue, locale, sourcePath, targetPath, syntaxes[key])...)
+			} else {
+				report.Findings = append(report.Findings, ProtectedSyntaxFindings(key, sourceValue, targetValue, locale, syntaxes[key])...)
+			}
 		}
 		if opts.Strict {
-			if document {
-				report.Findings = append(report.Findings, ProtectedDocumentFindings(key, sourceValue, targetValue, locale, sourcePath, targetPath)...)
-			} else {
-				report.Findings = append(report.Findings, ProtectedFindings(key, sourceValue, targetValue, locale)...)
-			}
 			report.Findings = append(report.Findings, glossaryFindings(key, sourceValue, targetValue, terms)...)
 		}
 		if opts.RequireState {
@@ -418,7 +442,7 @@ func InterpolationMismatch(key, source, target string) *Mismatch {
 // HasFailures reports whether validation should return a non-zero exit status.
 func HasFailures(reports []Report) bool {
 	for _, report := range reports {
-		if len(report.Missing) > 0 || len(report.Mismatches) > 0 || len(report.Errors) > 0 {
+		if report.BlockedBySource || len(report.Missing) > 0 || len(report.Mismatches) > 0 || len(report.Errors) > 0 {
 			return true
 		}
 		for _, finding := range report.Findings {
@@ -503,6 +527,11 @@ func FormatHuman(reports []Report) string {
 			_, _ = fmt.Fprintf(&b, ", %d errors", len(report.Errors))
 		}
 		b.WriteByte('\n')
+		if len(report.BlockedLocales) > 0 {
+			_, _ = fmt.Fprintf(&b, "  Source %s blocks %d locales: %s\n", report.SourcePath, len(report.BlockedLocales), strings.Join(report.BlockedLocales, ", "))
+		} else if report.BlockedBySource {
+			_, _ = fmt.Fprintf(&b, "  Blocked by source errors in %s (reported above)\n", report.SourcePath)
+		}
 		for _, finding := range report.Findings {
 			_, _ = fmt.Fprintf(&b, "  - %s: %s", finding.Code, finding.Message)
 			if finding.Key != "" {

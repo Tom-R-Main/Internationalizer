@@ -8,6 +8,7 @@ import (
 
 	"github.com/Tom-R-Main/Internationalizer/internal/fluentpattern"
 	"github.com/Tom-R-Main/Internationalizer/internal/message"
+	"github.com/Tom-R-Main/Internationalizer/internal/protectedtext"
 )
 
 var (
@@ -21,28 +22,36 @@ var (
 // must preserve exactly. Multiple damaged structures may yield multiple
 // findings with the same stable code and distinct messages.
 func ProtectedFindings(key, source, target, targetLocale string) []Finding {
-	return protectedFindings(key, source, target, targetLocale, "", "")
+	return ProtectedSyntaxFindings(key, source, target, targetLocale, message.ResolveSyntax("", message.Auto, source))
+}
+
+func ProtectedSyntaxFindings(key, source, target, targetLocale string, syntax message.Syntax) []Finding {
+	return protectedFindings(key, source, target, targetLocale, "", "", syntax)
 }
 
 // ProtectedDocumentFindings compares Markdown document structure while
 // resolving relative links from each document's own directory. A localized
 // document may add one link back to its source.
-func ProtectedDocumentFindings(key, source, target, targetLocale, sourcePath, targetPath string) []Finding {
-	return protectedFindings(key, source, target, targetLocale, sourcePath, targetPath)
+func ProtectedDocumentFindings(key, source, target, targetLocale, sourcePath, targetPath string, syntaxes ...message.Syntax) []Finding {
+	syntax := message.Legacy
+	if len(syntaxes) > 0 {
+		syntax = syntaxes[0]
+	}
+	return protectedFindings(key, source, target, targetLocale, sourcePath, targetPath, syntax)
 }
 
-func protectedFindings(key, source, target, targetLocale, sourcePath, targetPath string) []Finding {
+func protectedFindings(key, source, target, targetLocale, sourcePath, targetPath string, syntax message.Syntax) []Finding {
 	var findings []Finding
 	document := sourcePath != "" && targetPath != ""
 	icu := false
 	if !document {
-		icu = usesICUValidation(source, target)
+		icu = syntax == message.ICU && usesICUValidation(source, target)
 	}
 	if !icu {
-		if mismatch := InterpolationMismatch(key, source, target); mismatch != nil {
+		if mismatch := SyntaxInterpolationMismatch(key, source, target, syntax); mismatch != nil {
 			findings = append(findings, protectedFinding(key, "interpolation variables", mismatch.SourceVars, mismatch.TargetVars))
 		}
-		if fluentpattern.LooksLike(source) || fluentpattern.LooksLike(target) {
+		if syntax == message.Fluent {
 			expected, actual, preserved, err := fluentpattern.Compare(source, target)
 			if err != nil {
 				actual = []string{err.Error()}
@@ -58,6 +67,7 @@ func protectedFindings(key, source, target, targetLocale, sourcePath, targetPath
 		extractTarget func(string) []string
 	}{
 		{"HTML structure", extractHTMLTags, extractHTMLTags},
+		{"HTML code", protectedtext.HTMLCode, protectedtext.HTMLCode},
 		{"fenced code", extractFencedCode, extractFencedCode},
 		{"inline code", extractInlineCode, extractInlineCode},
 		{"markdown link destinations", extractLinkDestinations, extractLinkDestinations},
@@ -65,8 +75,8 @@ func protectedFindings(key, source, target, targetLocale, sourcePath, targetPath
 	if document {
 		checks[0].extractSource = func(input string) []string { return extractDocumentHTMLTags(input, sourcePath) }
 		checks[0].extractTarget = func(input string) []string { return extractDocumentHTMLTags(input, targetPath) }
-		checks[3].extractSource = func(input string) []string { return extractDocumentLinkDestinations(input, sourcePath) }
-		checks[3].extractTarget = func(input string) []string {
+		checks[4].extractSource = func(input string) []string { return extractDocumentLinkDestinations(input, sourcePath) }
+		checks[4].extractTarget = func(input string) []string {
 			tokens := extractDocumentLinkDestinations(input, targetPath)
 			return removeSourceBacklink(tokens, sourcePath)
 		}

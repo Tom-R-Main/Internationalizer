@@ -6,10 +6,11 @@ import (
 	"github.com/Tom-R-Main/Internationalizer/internal/glossary"
 	"github.com/Tom-R-Main/Internationalizer/internal/llm"
 	"github.com/Tom-R-Main/Internationalizer/internal/locale"
+	"github.com/Tom-R-Main/Internationalizer/internal/message"
 	"github.com/Tom-R-Main/Internationalizer/internal/state"
 )
 
-const PromptContractVersion = 2
+const PromptContractVersion = 3
 
 // Resolved is the resolved prompt, provider settings, and stable hash for
 // one target locale and source format.
@@ -25,7 +26,17 @@ type Resolved struct {
 // Resolve builds the effective translation policy. Callers provide
 // already-loaded style-guide and glossary content so policy resolution remains
 // independent of filesystem layout.
-func Resolve(cfg *config.Config, targetLocale, format, styleGuide string, terms []glossary.Term) (Resolved, error) {
+func Resolve(cfg *config.Config, targetLocale, format, styleGuide string, terms []glossary.Term, bundleSyntax ...message.Syntax) (Resolved, error) {
+	syntax := cfg.MessageSyntax
+	if len(bundleSyntax) > 0 {
+		syntax = bundleSyntax[0]
+	}
+	if syntax == "" {
+		syntax = message.Auto
+	}
+	if err := message.ValidateSyntax(syntax); err != nil {
+		return Resolved{}, err
+	}
 	sourceLocale := cfg.SourceLocale
 	if sourceLocale == "" {
 		sourceLocale = "en"
@@ -40,13 +51,14 @@ func Resolve(cfg *config.Config, targetLocale, format, styleGuide string, terms 
 	}
 
 	effectiveLLM := cfg.LLMForLocale(canonicalTarget)
-	prompt := llm.BuildSystemPrompt(canonicalSource, canonicalTarget, styleGuide, terms)
+	prompt := llm.BuildSystemPrompt(canonicalSource, canonicalTarget, styleGuide, terms, syntax)
 	switch format {
 	case "markdown":
-		prompt = llm.BuildDocumentPrompt(canonicalSource, canonicalTarget, styleGuide, terms)
+		prompt = llm.BuildDocumentPrompt(canonicalSource, canonicalTarget, styleGuide, terms, syntax)
 	case "fluent":
 		prompt = llm.BuildFluentPrompt(canonicalSource, canonicalTarget, styleGuide, terms)
 	}
+	prompt += "\nPreserve the complete content of HTML code elements and Markdown code spans exactly."
 
 	guideHash, err := state.HashValue(styleGuide)
 	if err != nil {
@@ -57,16 +69,17 @@ func Resolve(cfg *config.Config, targetLocale, format, styleGuide string, terms 
 		return Resolved{}, err
 	}
 	hash, err := state.HashValue(struct {
-		Version      int    `json:"version"`
-		SourceLocale string `json:"source_locale"`
-		TargetLocale string `json:"target_locale"`
-		Format       string `json:"format"`
-		Provider     string `json:"provider"`
-		Model        string `json:"model"`
-		Reasoning    string `json:"reasoning_effort"`
-		GuideHash    string `json:"guide_hash"`
-		GlossaryHash string `json:"glossary_hash"`
-	}{PromptContractVersion, canonicalSource, canonicalTarget, format, effectiveLLM.Provider, effectiveLLM.Model, llm.EffectiveReasoningEffort(effectiveLLM), guideHash, glossaryHash})
+		Syntax       message.Syntax `json:"message_syntax"`
+		Version      int            `json:"version"`
+		SourceLocale string         `json:"source_locale"`
+		TargetLocale string         `json:"target_locale"`
+		Format       string         `json:"format"`
+		Provider     string         `json:"provider"`
+		Model        string         `json:"model"`
+		Reasoning    string         `json:"reasoning_effort"`
+		GuideHash    string         `json:"guide_hash"`
+		GlossaryHash string         `json:"glossary_hash"`
+	}{syntax, PromptContractVersion, canonicalSource, canonicalTarget, format, effectiveLLM.Provider, effectiveLLM.Model, llm.EffectiveReasoningEffort(effectiveLLM), guideHash, glossaryHash})
 	if err != nil {
 		return Resolved{}, err
 	}

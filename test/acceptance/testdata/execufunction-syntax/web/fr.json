@@ -1,0 +1,5 @@
+{
+  "docs.tui.skills.desc": "Lire <code>&lt;root&gt;/{.sift,.claude,.codex,.agents}/skills</code> pour {{user.name}}.",
+  "price": "Prix {{amount, number}} pour {{- customer.name}}",
+  "example": "Exécutez `{.sift,.claude}/skills` pour continuer."
+}

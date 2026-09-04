@@ -3,6 +3,8 @@ package formats
 import (
 	"fmt"
 	"sort"
+
+	"github.com/Tom-R-Main/Internationalizer/internal/message"
 )
 
 // UnitKind describes the semantic role of one independently translatable unit.
@@ -21,11 +23,24 @@ const (
 // Context is translator-facing information; Structure is a deterministic
 // adapter-owned signature used to detect semantic message changes.
 type Unit struct {
-	ID        string   `json:"id"`
-	Value     string   `json:"value"`
-	Kind      UnitKind `json:"kind"`
-	Context   string   `json:"context,omitempty"`
-	Structure string   `json:"structure,omitempty"`
+	Syntax    message.Syntax `json:"syntax,omitempty"`
+	ID        string         `json:"id"`
+	Value     string         `json:"value"`
+	Kind      UnitKind       `json:"kind"`
+	Context   string         `json:"context,omitempty"`
+	Structure string         `json:"structure,omitempty"`
+}
+
+// ParseSourceUnits attaches the resolved source grammar for downstream checks.
+func ParseSourceUnits(format Format, data []byte, syntax message.Syntax) ([]Unit, error) {
+	units, err := ParseUnits(format, data)
+	if err != nil {
+		return nil, err
+	}
+	for i := range units {
+		units[i].Syntax = message.ResolveSyntax(format.Name(), syntax, units[i].Value)
+	}
+	return units, nil
 }
 
 // UnitFormat is implemented by formats with richer semantics than a flat

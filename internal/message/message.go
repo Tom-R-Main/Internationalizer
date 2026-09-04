@@ -142,6 +142,12 @@ func Compare(source, target, targetLocale string) []Issue {
 	if !LooksLike(source) && !LooksLike(target) {
 		return nil
 	}
+	return CompareICU(source, target, targetLocale)
+}
+
+// CompareICU always parses both values, including malformed messages that do
+// not resemble an ICU argument strongly enough for automatic detection.
+func CompareICU(source, target, targetLocale string) []Issue {
 	sourceMessage, err := Parse(source)
 	if err != nil {
 		return []Issue{{Code: CodeSyntax, Message: fmt.Sprintf("source ICU message: %v", err)}}
