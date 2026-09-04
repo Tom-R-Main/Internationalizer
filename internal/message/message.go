@@ -441,15 +441,22 @@ func displayType(argumentType ArgumentType) string {
 }
 
 func isExactSelector(selector string) bool {
+	_, ok := normalizeExactSelector(selector)
+	return ok
+}
+
+func normalizeExactSelector(selector string) (string, bool) {
 	if !strings.HasPrefix(selector, "=") || len(selector) == 1 {
-		return false
+		return "", false
 	}
 	number := selector[1:]
+	negative := false
 	if number[0] == '-' {
+		negative = true
 		number = number[1:]
 	}
 	if number == "" {
-		return false
+		return "", false
 	}
 	dotSeen := false
 	digitSeenAfterDot := false
@@ -462,10 +469,30 @@ func isExactSelector(selector string) bool {
 		case character == '.' && !dotSeen:
 			dotSeen = true
 		default:
-			return false
+			return "", false
 		}
 	}
-	return !dotSeen || digitSeenAfterDot
+	if dotSeen && !digitSeenAfterDot {
+		return "", false
+	}
+	integer, fraction, _ := strings.Cut(number, ".")
+	integer = strings.TrimLeft(integer, "0")
+	if integer == "" {
+		integer = "0"
+	}
+	fraction = strings.TrimRight(fraction, "0")
+	if integer == "0" && fraction == "" {
+		negative = false
+	}
+	canonical := "="
+	if negative {
+		canonical += "-"
+	}
+	canonical += integer
+	if fraction != "" {
+		canonical += "." + fraction
+	}
+	return canonical, true
 }
 
 type parser struct {
@@ -560,7 +587,9 @@ func (p *parser) parseApostrophe(pluralContext bool) (string, error) {
 		p.position++
 		return quoted.String(), nil
 	}
-	return "", p.errorf("unterminated apostrophe quote")
+	// ICU MessageFormat treats the end of a pattern as the implicit end of an
+	// apostrophe-quoted syntax span.
+	return quoted.String(), nil
 }
 
 func (p *parser) apostropheStartsQuote(pluralContext bool) bool {
@@ -645,6 +674,11 @@ func (p *parser) parseArgument(pluralContext bool) (*Argument, error) {
 		selector := p.readSelector()
 		if selector == "" {
 			return nil, p.errorf("selector is required for argument %q", name)
+		}
+		if argumentType != ArgumentSelect {
+			if canonical, ok := normalizeExactSelector(selector); ok {
+				selector = canonical
+			}
 		}
 		if _, duplicate := selectors[selector]; duplicate {
 			return nil, p.errorf("duplicate selector %q for argument %q", selector, name)

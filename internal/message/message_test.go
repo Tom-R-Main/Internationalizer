@@ -111,6 +111,31 @@ func TestParseRejectsNonFiniteAndMalformedExactSelectors(t *testing.T) {
 	}
 }
 
+func TestCompareNormalizesEquivalentExactSelectors(t *testing.T) {
+	source := "{n, plural, =1 {One} other {# items}}"
+	for _, selector := range []string{"1.0", "01", "01.000"} {
+		t.Run(selector, func(t *testing.T) {
+			target := "{n, plural, =" + selector + " {Un} other {# articles}}"
+			if issues := Compare(source, target, "fr"); len(issues) != 0 {
+				t.Fatalf("Compare rejected equivalent selector %q: %#v", selector, issues)
+			}
+		})
+	}
+	if _, err := Parse("{n, plural, =1 {One} =1.0 {Duplicate} other {Other}}"); err == nil {
+		t.Fatal("Parse accepted numerically duplicate exact selectors")
+	}
+}
+
+func TestParseImplicitlyClosesApostropheQuoteAtEnd(t *testing.T) {
+	parsed, err := Parse("Hello {name}: '{")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse(parsed.String()); err != nil {
+		t.Fatalf("Parse(String()) failed: %v", err)
+	}
+}
+
 func TestCompareChecksTargetOnlyLocaleCategoryAgainstSourceOther(t *testing.T) {
 	source := "{count, plural, one {{name} has one item} other {{name} has # items}}"
 	valid := "{count, plural, one {{name} имеет один предмет} few {{name} имеет # предмета} other {{name} имеет # предметов}}"
