@@ -256,9 +256,11 @@ func translateLocale(
 		}
 	}
 	result := Result{Bundle: bundle.bundle.ID, Locale: locale, KeysTotal: len(sourceKeys)}
-	for _, key := range sortedKeys(sourceKeys) {
-		if findings := validation.ICUSourceFindings(key, sourceKeys[key], cfg.SourceLocale); len(findings) > 0 {
-			result.Errors = append(result.Errors, fmt.Sprintf("source %q: %s", key, findings[0].Message))
+	if bundle.format.Name() != "markdown" {
+		for _, key := range sortedKeys(sourceKeys) {
+			if findings := validation.ICUSourceFindings(key, sourceKeys[key], cfg.SourceLocale); len(findings) > 0 {
+				result.Errors = append(result.Errors, fmt.Sprintf("source %q: %s", key, findings[0].Message))
+			}
 		}
 	}
 	if len(result.Errors) > 0 {
@@ -270,6 +272,11 @@ func translateLocale(
 		return jobOutput{result: result}
 	}
 	result.TargetPath = targetPath
+	validationContext := valueValidationContext{
+		document:   bundle.format.Name() == "markdown",
+		sourcePath: bundle.bundle.Source,
+		targetPath: targetPath,
+	}
 
 	terms, err := glossary.Load(cfg.GlossaryDir, locale)
 	if err != nil {
@@ -325,7 +332,7 @@ func translateLocale(
 			if !plan.state.adoptable() {
 				continue
 			}
-			if err := validateTranslationValue(plan.key, plan.source, targetKeys[plan.key], locale); err != nil {
+			if err := validateTranslationValueWithContext(plan.key, plan.source, targetKeys[plan.key], locale, validationContext); err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("cannot adopt %q: %v", plan.key, err))
 			}
 		}
@@ -360,7 +367,7 @@ func translateLocale(
 	toTranslate := make([]plannedEntry, 0, len(candidates))
 	for _, plan := range candidates {
 		if record, ok := memory.Lookup(locale, bundle.bundle.ID, plan.key, plan.sourceHash, policyHash); ok {
-			if err := validateTranslationValue(plan.key, plan.source, record.Target, locale); err == nil {
+			if err := validateTranslationValueWithContext(plan.key, plan.source, record.Target, locale, validationContext); err == nil {
 				staged[plan.key] = record.Target
 				origins[plan.key] = translationOrigin{kind: "tm", provider: record.Provider, model: record.Model}
 				result.KeysCached++
@@ -397,7 +404,7 @@ func translateLocale(
 			result.Errors = append(result.Errors, fmt.Sprintf("batch %d: provider returned no response", i/batchSize+1))
 			return jobOutput{result: result}
 		}
-		if err := validateBatch(entries, response.Translations, locale); err != nil {
+		if err := validateBatch(entries, response.Translations, locale, validationContext); err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("batch %d: %v", i/batchSize+1, err))
 			return jobOutput{result: result}
 		}
@@ -410,16 +417,19 @@ func translateLocale(
 			origins[plan.key] = translationOrigin{kind: "provider", provider: provider.Name(), model: localeLLM.Model}
 			result.KeysTranslated++
 			records = append(records, tm.Record{
-				Bundle:     bundle.bundle.ID,
-				Key:        plan.key,
-				Source:     plan.source,
-				Target:     translation,
-				Locale:     locale,
-				Hash:       plan.sourceHash,
-				PolicyHash: policyHash,
-				Provider:   provider.Name(),
-				Model:      localeLLM.Model,
-				Timestamp:  time.Now().UTC(),
+				Bundle:        bundle.bundle.ID,
+				Key:           plan.key,
+				Source:        plan.source,
+				Target:        translation,
+				Locale:        locale,
+				Hash:          plan.sourceHash,
+				PolicyHash:    policyHash,
+				GuideHash:     translationPolicy.GuideHash,
+				GlossaryHash:  translationPolicy.GlossaryHash,
+				PromptVersion: translationPolicy.PromptVersion,
+				Provider:      provider.Name(),
+				Model:         localeLLM.Model,
+				Timestamp:     time.Now().UTC(),
 			})
 		}
 	}
@@ -584,7 +594,7 @@ func (r *Result) addState(state entryState) {
 	}
 }
 
-func validateBatch(entries []llm.Entry, translations map[string]string, targetLocale string) error {
+func validateBatch(entries []llm.Entry, translations map[string]string, targetLocale string, validationContext valueValidationContext) error {
 	expected := make(map[string]struct{}, len(entries))
 	var missing []string
 	for _, entry := range entries {
@@ -601,7 +611,7 @@ func validateBatch(entries []llm.Entry, translations map[string]string, targetLo
 	}
 	if len(missing) == 0 && len(extra) == 0 {
 		for _, entry := range entries {
-			if err := validateTranslationValue(entry.Key, entry.Value, translations[entry.Key], targetLocale); err != nil {
+			if err := validateTranslationValueWithContext(entry.Key, entry.Value, translations[entry.Key], targetLocale, validationContext); err != nil {
 				return err
 			}
 		}

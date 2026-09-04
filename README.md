@@ -339,6 +339,13 @@ Define rules that apply to all languages: interpolation syntax, HTML preservatio
 
 Define language-specific rules: formality register (tu vs. vous), punctuation (guillemets, inverted question marks), plural forms, date/number formatting, and a terminology glossary.
 
+Style guides are durable policy inputs, not generated output. Internationalizer
+reads them but never rewrites them. Their content is hashed separately from the
+glossary and prompt contract, so an application code change does not make a
+translation stale. Editing a guide intentionally marks that locale for policy
+review; changing internal prompt wording does not, unless the prompt contract
+version also changes.
+
 See [`examples/react-app/style-guides/`](examples/react-app/style-guides/) for a working example.
 
 ## Glossary Format
@@ -370,7 +377,7 @@ findings; it does not exempt a longer value merely containing `API`.
 Translation memory is stored as a JSONL file (one JSON record per line). Each record contains:
 
 - The bundle, key, source value, translated value, and canonical target locale
-- Source and translation-policy hashes
+- Source, style-guide, glossary, prompt-contract, and combined policy hashes
 - The provider and model that produced the translation
 - A timestamp
 
@@ -386,7 +393,12 @@ reviewable `.internationalizer.lock` manifest is versioned separately.
 |--------|-----------|------|
 | JSON | `.json` | Key-value (nested, dot-notation flattened) |
 | YAML | `.yml`, `.yaml` | Key-value (preserves comments and ordering) |
-| Markdown | `.md`, `.mdx` | Whole-document translation |
+| Markdown | `.md`, `.mdx` | Preamble and H2-level sections |
+
+Markdown targets contain invisible `internationalizer:unit` comments before
+H2 sections. These stable markers let Internationalizer add, move, or edit one
+source section without retranslating unrelated sections. Existing unmarked
+documents receive markers on their next successful update.
 
 ## Project Type Detection
 

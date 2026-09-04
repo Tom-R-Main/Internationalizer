@@ -24,14 +24,17 @@ func TestTMRoundTrip(t *testing.T) {
 
 	// Add a record.
 	rec := Record{
-		Bundle:     "app",
-		Key:        "common.save",
-		Source:     "Save",
-		Target:     "Enregistrer",
-		Locale:     "fr",
-		Hash:       HashSource("Save"),
-		PolicyHash: "policy-v1",
-		Timestamp:  time.Now(),
+		Bundle:        "app",
+		Key:           "common.save",
+		Source:        "Save",
+		Target:        "Enregistrer",
+		Locale:        "fr",
+		Hash:          HashSource("Save"),
+		PolicyHash:    "policy-v1",
+		GuideHash:     "guide-v1",
+		GlossaryHash:  "glossary-v1",
+		PromptVersion: 2,
+		Timestamp:     time.Now(),
 	}
 	if err := memory.Add(rec); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -44,6 +47,9 @@ func TestTMRoundTrip(t *testing.T) {
 	}
 	if lookup.Target != "Enregistrer" {
 		t.Errorf("got %q, want %q", lookup.Target, "Enregistrer")
+	}
+	if lookup.GuideHash != "guide-v1" || lookup.GlossaryHash != "glossary-v1" || lookup.PromptVersion != 2 {
+		t.Fatalf("component policy metadata did not round-trip: %#v", lookup)
 	}
 
 	// Lookup with different hash should miss.

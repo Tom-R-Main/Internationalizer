@@ -20,6 +20,7 @@ type fakeProvider struct {
 	name     string
 	response *llm.TranslateResponse
 	calls    int
+	requests []llm.TranslateRequest
 }
 
 func (p *fakeProvider) Name() string {
@@ -29,8 +30,9 @@ func (p *fakeProvider) Name() string {
 	return "fake"
 }
 
-func (p *fakeProvider) Translate(_ context.Context, _ llm.TranslateRequest) (*llm.TranslateResponse, error) {
+func (p *fakeProvider) Translate(_ context.Context, request llm.TranslateRequest) (*llm.TranslateResponse, error) {
 	p.calls++
+	p.requests = append(p.requests, request)
 	return p.response, nil
 }
 
@@ -427,6 +429,104 @@ func TestRunUsesBundleTargetTemplateAndAdoptsExistingTranslation(t *testing.T) {
 	}
 	if results[0].KeysCurrent != 1 {
 		t.Fatalf("second run results = %#v, want current entry", results)
+	}
+}
+
+func TestRunAdoptsMarkdownWithRebasedLinksAndCodeBraces(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "README.md")
+	targetPath := filepath.Join(dir, "docs", "i18n", "fr.md")
+	source := "# Project\n\n[License](LICENSE)\n\n## Configuration\n\n```json\n{\"target\":\"{locale}\"}\n```\n"
+	target := "> [English](../../README.md)\n\n# Projet\n\n[Licence](../../LICENSE)\n\n## Configuration\n\n```json\n{\"target\":\"{locale}\"}\n```\n"
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetPath, []byte(target), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig(dir, "")
+	cfg.Bundles = []config.Bundle{{
+		ID:     "docs",
+		Source: sourcePath,
+		Target: filepath.Join(dir, "docs", "i18n", "{locale}.md"),
+		Format: "markdown",
+	}}
+
+	results, err := Run(context.Background(), cfg, nil, Options{AdoptExisting: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || len(results[0].Errors) != 0 || results[0].KeysUntracked != 2 {
+		t.Fatalf("results = %#v, want two adopted Markdown units", results)
+	}
+}
+
+func TestRunRetranslatesOnlyChangedMarkdownSectionAndNeverWritesGuide(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "README.md")
+	targetPath := filepath.Join(dir, "docs", "i18n", "fr.md")
+	guidePath := filepath.Join(dir, "style-guides", "fr.md")
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(guidePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("# Project\n\n## Install\n\nOld install.\n\n## Usage\n\nStable usage.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetPath, []byte("# Projet\n\n## Installation\n\nAncienne installation.\n\n## Utilisation\n\nUtilisation stable.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	guide := []byte("Use clear, professional French.\n")
+	if err := os.WriteFile(guidePath, guide, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := testConfig(dir, "")
+	cfg.Bundles = []config.Bundle{{
+		ID:     "docs",
+		Source: sourcePath,
+		Target: filepath.Join(dir, "docs", "i18n", "{locale}.md"),
+		Format: "markdown",
+	}}
+	if _, err := Run(context.Background(), cfg, nil, Options{AdoptExisting: true}); err != nil {
+		t.Fatalf("adopting existing translation: %v", err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("# Project\n\n## Install\n\nNew install.\n\n## Usage\n\nStable usage.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provider := &fakeProvider{response: &llm.TranslateResponse{Translations: map[string]string{
+		"markdown:install": "## Installation\n\nNouvelle installation.\n",
+	}}}
+
+	results, err := Run(context.Background(), cfg, provider, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].KeysSourceStale != 1 || results[0].KeysTranslated != 1 || provider.calls != 1 {
+		t.Fatalf("results = %#v, provider calls = %d", results, provider.calls)
+	}
+	if len(provider.requests) != 1 || len(provider.requests[0].Entries) != 1 || provider.requests[0].Entries[0].Key != "markdown:install" {
+		t.Fatalf("provider requests = %#v, want only markdown:install", provider.requests)
+	}
+	got, err := os.ReadFile(targetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "# Projet\n\n<!-- internationalizer:unit markdown:install -->\n## Installation\n\nNouvelle installation.\n<!-- internationalizer:unit markdown:usage -->\n## Utilisation\n\nUtilisation stable.\n"
+	if string(got) != want {
+		t.Fatalf("target = %q, want %q", got, want)
+	}
+	guideAfter, err := os.ReadFile(guidePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(guideAfter) != string(guide) {
+		t.Fatalf("style guide changed: got %q, want %q", guideAfter, guide)
 	}
 }
 

@@ -113,7 +113,7 @@ func ValidateWithOptions(cfg *config.Config, opts Options) ([]Report, error) {
 				policyHash = resolved.Hash
 			}
 
-			report := validateLocale(bundle.ID, cfg.SourceLocale, locale, sourceData, sourceKeys, targetPath, format, terms, manifest, policyHash, cfg.Validation.PluralStyle, opts)
+			report := validateLocale(bundle.ID, cfg.SourceLocale, locale, bundle.Source, sourceData, sourceKeys, targetPath, format, terms, manifest, policyHash, cfg.Validation.PluralStyle, opts)
 			reports = append(reports, report)
 		}
 	}
@@ -127,7 +127,7 @@ func formatForBundle(bundle config.Bundle) (formats.Format, error) {
 	return formats.FormatForFile(bundle.Source)
 }
 
-func validateLocale(bundle, sourceLocale, locale string, sourceData []byte, sourceKeys map[string]string, targetPath string, format formats.Format, terms []glossary.Term, manifest *state.Manifest, policyHash, pluralStyle string, opts Options) Report {
+func validateLocale(bundle, sourceLocale, locale, sourcePath string, sourceData []byte, sourceKeys map[string]string, targetPath string, format formats.Format, terms []glossary.Term, manifest *state.Manifest, policyHash, pluralStyle string, opts Options) Report {
 	report := Report{Bundle: bundle, Locale: locale, TargetPath: targetPath}
 	if opts.Strict {
 		translated := 0.0
@@ -141,9 +141,13 @@ func validateLocale(bundle, sourceLocale, locale string, sourceData []byte, sour
 		validationKeys, requiredPluralKeys, optionalPluralKeys = ExpandI18nextV4Source(sourceKeys, sourceLocale, locale)
 	}
 	sourceICUValid := make(map[string]bool, len(validationKeys))
+	document := format.Name() == "markdown"
 	for _, key := range allKeys(validationKeys) {
 		sourceValue := validationKeys[key]
-		findings := ICUSourceFindings(key, sourceValue, sourceLocale)
+		var findings []Finding
+		if !document {
+			findings = ICUSourceFindings(key, sourceValue, sourceLocale)
+		}
 		sourceICUValid[key] = len(findings) == 0
 		report.Findings = append(report.Findings, findings...)
 	}
@@ -209,11 +213,15 @@ func validateLocale(bundle, sourceLocale, locale string, sourceData []byte, sour
 				report.Mismatches = append(report.Mismatches, *mismatch)
 			}
 		}
-		if sourceICUValid[key] {
+		if sourceICUValid[key] && !document {
 			report.Findings = append(report.Findings, ICUFindings(key, sourceValue, targetValue, locale)...)
 		}
 		if opts.Strict {
-			report.Findings = append(report.Findings, ProtectedFindings(key, sourceValue, targetValue, locale)...)
+			if document {
+				report.Findings = append(report.Findings, ProtectedDocumentFindings(key, sourceValue, targetValue, locale, sourcePath, targetPath)...)
+			} else {
+				report.Findings = append(report.Findings, ProtectedFindings(key, sourceValue, targetValue, locale)...)
+			}
 			report.Findings = append(report.Findings, glossaryFindings(key, sourceValue, targetValue, terms)...)
 		}
 		if opts.RequireState {
