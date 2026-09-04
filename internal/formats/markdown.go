@@ -17,3 +17,16 @@ func (f *MarkdownFormat) Serialize(entries map[string]string, _ []byte) ([]byte,
 	}
 	return nil, nil
 }
+
+func (f *MarkdownFormat) ParseUnits(data []byte) ([]Unit, error) {
+	return []Unit{{ID: "_content", Value: string(data), Kind: UnitDocument}}, nil
+}
+
+func (f *MarkdownFormat) SerializeUnits(units []Unit, _ []byte) ([]byte, error) {
+	for _, unit := range units {
+		if unit.ID == "_content" {
+			return []byte(unit.Value), nil
+		}
+	}
+	return nil, nil
+}

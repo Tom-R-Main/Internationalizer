@@ -86,10 +86,11 @@ func ValidateWithOptions(cfg *config.Config, opts Options) ([]Report, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading bundle %q source %s: %w", bundle.ID, bundle.Source, err)
 		}
-		sourceKeys, err := format.Parse(sourceData)
+		sourceUnits, err := formats.ParseUnits(format, sourceData)
 		if err != nil {
 			return nil, fmt.Errorf("parsing bundle %q source: %w", bundle.ID, err)
 		}
+		sourceKeys := formats.UnitValues(sourceUnits)
 		for _, locale := range cfg.TargetLocales {
 			targetPath, err := bundle.TargetPath(locale)
 			if err != nil {
@@ -165,13 +166,14 @@ func validateLocale(bundle, sourceLocale, locale string, sourceKeys map[string]s
 		return report
 	}
 
-	targetKeys, err := format.Parse(targetData)
+	targetUnits, err := formats.ParseUnits(format, targetData)
 	if err != nil {
 		report.Missing = allKeys(validationKeys)
 		report.Errors = append(report.Errors, fmt.Sprintf("parsing target: %v", err))
 		sortFindings(report.Findings)
 		return report
 	}
+	targetKeys := formats.UnitValues(targetUnits)
 
 	present := 0
 	translated := 0

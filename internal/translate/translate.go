@@ -64,10 +64,11 @@ func (e *RunError) Error() string {
 }
 
 type preparedBundle struct {
-	bundle     config.Bundle
-	format     formats.Format
-	sourceKeys map[string]string
-	sourceData []byte
+	bundle      config.Bundle
+	format      formats.Format
+	sourceUnits []formats.Unit
+	sourceKeys  map[string]string
+	sourceData  []byte
 }
 
 type job struct {
@@ -227,11 +228,11 @@ func prepareBundles(bundles []config.Bundle) ([]preparedBundle, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading bundle %q source %s: %w", bundle.ID, bundle.Source, err)
 		}
-		keys, err := format.Parse(data)
+		units, err := formats.ParseUnits(format, data)
 		if err != nil {
 			return nil, fmt.Errorf("parsing bundle %q source: %w", bundle.ID, err)
 		}
-		prepared = append(prepared, preparedBundle{bundle: bundle, format: format, sourceKeys: keys, sourceData: data})
+		prepared = append(prepared, preparedBundle{bundle: bundle, format: format, sourceUnits: units, sourceKeys: formats.UnitValues(units), sourceData: data})
 	}
 	return prepared, nil
 }
@@ -291,6 +292,7 @@ func translateLocale(
 	policyHash := translationPolicy.Hash
 
 	targetKeys := make(map[string]string)
+	var targetUnits []formats.Unit
 	var targetData []byte
 	targetExists := false
 	data, err := os.ReadFile(targetPath)
@@ -298,11 +300,12 @@ func translateLocale(
 	case err == nil:
 		targetExists = true
 		targetData = data
-		targetKeys, err = bundle.format.Parse(data)
+		targetUnits, err = formats.ParseUnits(bundle.format, data)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("parsing target %s: %v", targetPath, err))
 			return jobOutput{result: result}
 		}
+		targetKeys = formats.UnitValues(targetUnits)
 	case os.IsNotExist(err):
 	case err != nil:
 		result.Errors = append(result.Errors, fmt.Sprintf("reading target %s: %v", targetPath, err))
@@ -442,17 +445,23 @@ func translateLocale(
 				}
 			}
 		}
-		output, err := bundle.format.Serialize(staged, serializationBaseline)
+		unitBaseline := targetUnits
+		if !targetExists {
+			unitBaseline = bundle.sourceUnits
+		}
+		stagedUnits := formats.MergeUnitValues(unitBaseline, bundle.sourceUnits, staged)
+		output, err := formats.SerializeUnits(bundle.format, stagedUnits, serializationBaseline)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("serializing target %s: %v", targetPath, err))
 			return jobOutput{result: result}
 		}
 		output = appendOneNewline(output)
-		parsed, err := bundle.format.Parse(output)
+		parsedUnits, err := formats.ParseUnits(bundle.format, output)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("validating staged target %s: %v", targetPath, err))
 			return jobOutput{result: result}
 		}
+		parsed := formats.UnitValues(parsedUnits)
 		for _, plan := range candidates {
 			if parsed[plan.key] != staged[plan.key] {
 				result.Errors = append(result.Errors, fmt.Sprintf("validating staged target %s: key %q changed during serialization", targetPath, plan.key))
