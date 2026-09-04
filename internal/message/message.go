@@ -177,8 +177,8 @@ func PreservedTextTokenKinds(source, target, targetLocale string, tokenizers []f
 	if err != nil {
 		return nil, err
 	}
-	addTextTokenArguments(sourceMessage, tokenizers)
-	addTextTokenArguments(targetMessage, tokenizers)
+	addTextTokenArguments(sourceMessage, tokenizers, make([]bool, len(tokenizers)))
+	addTextTokenArguments(targetMessage, tokenizers, make([]bool, len(tokenizers)))
 	preserved := make([]bool, len(tokenizers))
 	for index := range preserved {
 		preserved[index] = true
@@ -194,25 +194,50 @@ func PreservedTextTokenKinds(source, target, targetLocale string, tokenizers []f
 	return preserved, nil
 }
 
-func addTextTokenArguments(message *Message, tokenizers []func(string) []string) {
+func addTextTokenArguments(message *Message, tokenizers []func(string) []string, inheritedProtection []bool) {
 	elementCount := len(message.elements)
 	var direct strings.Builder
-	for _, element := range message.elements[:elementCount] {
+	markers := make(map[*Argument]string)
+	for index, element := range message.elements[:elementCount] {
 		switch element.kind {
 		case elementText:
 			direct.WriteString(element.text)
 		case elementArgument:
-			direct.WriteByte('{')
-			direct.WriteString(element.argument.Name)
-			direct.WriteByte('}')
+			marker := fmt.Sprintf("\x00icu:%08d:%s\x00", index, element.argument.Name)
+			markers[element.argument] = marker
+			direct.WriteString(marker)
 		case elementPound:
 			direct.WriteByte('#')
 		}
 	}
+	childProtection := make(map[*Argument][]bool)
+	protectChild := func(argument *Argument, kind int) {
+		protection := childProtection[argument]
+		if protection == nil {
+			protection = make([]bool, len(tokenizers))
+			childProtection[argument] = protection
+		}
+		protection[kind] = true
+	}
 	for kind, tokenize := range tokenizers {
-		for index, token := range tokenize(direct.String()) {
+		tokens := tokenize(direct.String())
+		if inheritedProtection[kind] {
+			tokens = []string{direct.String()}
+			for argument := range markers {
+				protectChild(argument, kind)
+			}
+		}
+		for index, token := range tokens {
 			name := fmt.Sprintf("%s%08d:%08d:%s", textTokenArgumentPrefix, kind, index, token)
 			message.elements = append(message.elements, element{kind: elementArgument, argument: &Argument{Name: name}})
+			if inheritedProtection[kind] {
+				continue
+			}
+			for argument, marker := range markers {
+				if strings.Contains(token, marker) {
+					protectChild(argument, kind)
+				}
+			}
 		}
 	}
 	for _, element := range message.elements[:elementCount] {
@@ -220,7 +245,11 @@ func addTextTokenArguments(message *Message, tokenizers []func(string) []string)
 			continue
 		}
 		for _, option := range element.argument.Options {
-			addTextTokenArguments(option.Message, tokenizers)
+			protection := childProtection[element.argument]
+			if protection == nil {
+				protection = make([]bool, len(tokenizers))
+			}
+			addTextTokenArguments(option.Message, tokenizers, protection)
 		}
 	}
 }

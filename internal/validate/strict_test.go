@@ -369,6 +369,27 @@ func TestProtectedFindingsCompareICUStructuresPerLocaleBranch(t *testing.T) {
 	}
 }
 
+func TestProtectedFindingsCarryContextIntoNestedICUBranches(t *testing.T) {
+	argument := "{os, select, win {dir} other {ls}}"
+	damagedArgument := "{os, select, win {répertoire} other {ls}}"
+	tests := map[string][2]string{
+		"html attribute": {`<span data-command="` + argument + `">Run</span>`, `<span data-command="` + damagedArgument + `">Exécuter</span>`},
+		"inline code":    {"`" + argument + "`", "`" + damagedArgument + "`"},
+		"fenced code":    {"```sh\n" + argument + "\n```\n", "```sh\n" + damagedArgument + "\n```\n"},
+		"link":           {"[Run](" + argument + ")", "[Exécuter](" + damagedArgument + ")"},
+	}
+	for name, values := range tests {
+		t.Run(name, func(t *testing.T) {
+			if findings := ProtectedFindings("key", values[0], values[0], "fr"); len(findings) != 0 {
+				t.Fatalf("unchanged nested ICU protection produced findings: %#v", findings)
+			}
+			if findings := ProtectedFindings("key", values[0], values[1], "fr"); len(findings) == 0 {
+				t.Fatal("damaged nested ICU protected content was accepted")
+			}
+		})
+	}
+}
+
 func TestEvaluationCorpusSchemaAndIDsAreStable(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "test", "evaluation", "v1", "cases.json"))
 	if err != nil {
