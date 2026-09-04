@@ -202,6 +202,81 @@ manifest_path: .internationalizer.lock
 	}
 }
 
+func TestFluentPseudoAndExplicitReviewLifecycle(t *testing.T) {
+	projectDir := t.TempDir()
+	mustWriteFile(t, filepath.Join(projectDir, "locales", "en.ftl"), `# Link shown below the item count.
+items =
+    { $count ->
+        [one] One item
+       *[other] { $count } items
+    }
+learn-more = See <a data-l10n-name="docs">the documentation</a>.
+save-button =
+    .label = Save
+`)
+	mustWriteFile(t, filepath.Join(projectDir, "locales", "fr.ftl"), `# Link shown below the item count.
+items =
+    { $count ->
+        [one] Un élément
+       *[other] { $count } éléments
+    }
+learn-more = Consultez <a data-l10n-name="docs">la documentation</a>.
+save-button =
+    .label = Enregistrer
+`)
+	mustWriteFile(t, filepath.Join(projectDir, ".internationalizer.yml"), `source_locale: en
+target_locales: [fr]
+bundles:
+  - id: browser
+    source: locales/en.ftl
+    target: locales/{locale}.ftl
+    format: fluent
+manifest_path: .internationalizer.lock
+`)
+
+	adopt := runCLI(t, projectDir, nil, "translate", "--adopt-existing")
+	adopt.requireSuccess(t)
+	listed := runCLI(t, projectDir, nil, "review", "list", "--status", "needs_review")
+	listed.requireSuccess(t)
+	if got := strings.Count(listed.stdout, "needs_review"); got != 3 {
+		t.Fatalf("needs-review entries = %d, want 3:\n%s", got, listed.stdout)
+	}
+
+	required := runCLI(t, projectDir, nil, "validate", "--require-approved", "--json")
+	if required.exitCode != 1 || !strings.Contains(required.stdout, `"code": "needs_review"`) {
+		t.Fatalf("unapproved validation = exit %d:\n%s\n%s", required.exitCode, required.stdout, required.stderr)
+	}
+	approve := runCLI(t, projectDir, nil, "review", "approve", "--locale", "fr", "--all")
+	approve.requireSuccess(t)
+	approved := runCLI(t, projectDir, nil, "validate", "--require-approved", "--json")
+	approved.requireSuccess(t)
+
+	pseudo := runCLI(t, projectDir, nil, "pseudo", "--strategy", "accented")
+	pseudo.requireSuccess(t)
+	pseudoOutput := string(mustReadFile(t, filepath.Join(projectDir, "locales", "en-XA.ftl")))
+	for _, protected := range []string{"{ $count ->", "*[other]", "{ $count }", `data-l10n-name="docs"`, ".label ="} {
+		if !strings.Contains(pseudoOutput, protected) {
+			t.Fatalf("pseudo Fluent output lost %q:\n%s", protected, pseudoOutput)
+		}
+	}
+	manifest, err := state.Load(filepath.Join(projectDir, ".internationalizer.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range manifest.Translations {
+		switch entry.Locale {
+		case "fr":
+			if entry.ReviewStatus != state.ReviewApproved {
+				t.Fatalf("French entry was not approved: %#v", entry)
+			}
+		case "en-XA":
+			if entry.Origin != "pseudo" || entry.ReviewStatus != state.ReviewNeedsReview {
+				t.Fatalf("pseudo entry provenance = %#v", entry)
+			}
+		}
+	}
+}
+
 func TestOpenAITranslationExercisesResponsesContractAndPreservesSourceShape(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
