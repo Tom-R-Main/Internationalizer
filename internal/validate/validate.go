@@ -1,6 +1,7 @@
 package validate
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -11,6 +12,7 @@ import (
 	"github.com/Tom-R-Main/Internationalizer/internal/config"
 	"github.com/Tom-R-Main/Internationalizer/internal/formats"
 	"github.com/Tom-R-Main/Internationalizer/internal/glossary"
+	"github.com/Tom-R-Main/Internationalizer/internal/jsonintegrity"
 	"github.com/Tom-R-Main/Internationalizer/internal/message"
 	"github.com/Tom-R-Main/Internationalizer/internal/policy"
 	"github.com/Tom-R-Main/Internationalizer/internal/state"
@@ -91,7 +93,7 @@ func ValidateWithOptions(cfg *config.Config, opts Options) ([]Report, error) {
 		}
 		sourceUnits, err := formats.ParseSourceUnits(format, sourceData, bundle.MessageSyntax)
 		if err != nil {
-			return nil, fmt.Errorf("parsing bundle %q source: %w", bundle.ID, err)
+			return nil, fmt.Errorf("parsing bundle %q source %s: %w", bundle.ID, bundle.Source, err)
 		}
 		sourceKeys := formats.UnitValues(sourceUnits)
 		sourceFindings := make(map[string][]Finding)
@@ -197,7 +199,11 @@ func validateLocale(bundle, sourceLocale, locale, sourcePath string, sourceData 
 	targetKeys, err := parseTarget(format, sourceData, targetData)
 	if err != nil {
 		report.Missing = allKeys(validationKeys)
-		report.Errors = append(report.Errors, fmt.Sprintf("parsing target: %v", err))
+		report.Errors = append(report.Errors, fmt.Sprintf("parsing target %s: %v", targetPath, err))
+		var integrity *jsonintegrity.Error
+		if errors.As(err, &integrity) {
+			report.Findings = append(report.Findings, Finding{Code: FindingCode(integrity.JSONCode()), Severity: SeverityError, Message: err.Error(), Key: integrity.Key, Path: integrity.Path, OtherPath: integrity.OtherPath})
+		}
 		sortFindings(report.Findings)
 		return report
 	}

@@ -21,6 +21,8 @@ const (
 	CodePolicyStale                FindingCode = "policy_stale"
 	CodeTargetModified             FindingCode = "target_modified"
 	CodeNeedsReview                FindingCode = "needs_review"
+	CodeJSONDuplicateMember        FindingCode = "json_duplicate_member"
+	CodeJSONFlattenedKeyCollision  FindingCode = "json_flattened_key_collision"
 )
 
 // Severity determines whether a finding fails validation.
@@ -33,12 +35,14 @@ const (
 
 // Finding describes one stable validation outcome for automation and humans.
 type Finding struct {
-	Code     FindingCode `json:"code"`
-	Severity Severity    `json:"severity"`
-	Key      string      `json:"key,omitempty"`
-	Message  string      `json:"message"`
-	Expected []string    `json:"expected,omitempty"`
-	Actual   []string    `json:"actual,omitempty"`
+	Path      string      `json:"path,omitempty"`
+	OtherPath string      `json:"other_path,omitempty"`
+	Code      FindingCode `json:"code"`
+	Severity  Severity    `json:"severity"`
+	Key       string      `json:"key,omitempty"`
+	Message   string      `json:"message"`
+	Expected  []string    `json:"expected,omitempty"`
+	Actual    []string    `json:"actual,omitempty"`
 }
 
 func sortFindings(findings []Finding) {

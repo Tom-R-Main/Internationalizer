@@ -2,6 +2,7 @@ package translate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -12,6 +13,7 @@ import (
 	"github.com/Tom-R-Main/Internationalizer/internal/config"
 	"github.com/Tom-R-Main/Internationalizer/internal/formats"
 	"github.com/Tom-R-Main/Internationalizer/internal/glossary"
+	"github.com/Tom-R-Main/Internationalizer/internal/jsonintegrity"
 	"github.com/Tom-R-Main/Internationalizer/internal/llm"
 	"github.com/Tom-R-Main/Internationalizer/internal/message"
 	"github.com/Tom-R-Main/Internationalizer/internal/policy"
@@ -37,30 +39,31 @@ type Options struct {
 // KeysTranslated counts validated provider output, even when a later failure
 // prevents its commit. Persistence flags attest only completed local writes.
 type Result struct {
-	BlockedBySource bool     `json:"blocked_by_source"`
-	SourcePath      string   `json:"source_path,omitempty"`
-	BlockedLocales  []string `json:"blocked_locales,omitempty"`
-	DryRun          bool     `json:"dry_run"`
-	Bundle          string   `json:"bundle"`
-	Locale          string   `json:"locale"`
-	TargetPath      string   `json:"target_path"`
-	KeysTotal       int      `json:"keys_total"`
-	KeysMissing     int      `json:"keys_missing"`
-	KeysSourceStale int      `json:"keys_source_stale"`
-	KeysPolicyStale int      `json:"keys_policy_stale"`
-	KeysManualEdit  int      `json:"keys_manual_edit"`
-	KeysUntracked   int      `json:"keys_untracked"`
-	KeysCurrent     int      `json:"keys_current"`
-	KeysCached      int      `json:"keys_cached"`
-	KeysTranslated  int      `json:"keys_translated"`
-	KeysSkipped     int      `json:"keys_skipped"`
-	Batches         int      `json:"batches"`
-	ProviderCalls   int      `json:"provider_calls"`
-	CatalogWritten  bool     `json:"catalog_written"`
-	ManifestUpdated bool     `json:"manifest_updated"`
-	TokensIn        int      `json:"tokens_in"`
-	TokensOut       int      `json:"tokens_out"`
-	Errors          []string `json:"errors,omitempty"`
+	InputError      *jsonintegrity.Error `json:"input_error,omitempty"`
+	BlockedBySource bool                 `json:"blocked_by_source"`
+	SourcePath      string               `json:"source_path,omitempty"`
+	BlockedLocales  []string             `json:"blocked_locales,omitempty"`
+	DryRun          bool                 `json:"dry_run"`
+	Bundle          string               `json:"bundle"`
+	Locale          string               `json:"locale"`
+	TargetPath      string               `json:"target_path"`
+	KeysTotal       int                  `json:"keys_total"`
+	KeysMissing     int                  `json:"keys_missing"`
+	KeysSourceStale int                  `json:"keys_source_stale"`
+	KeysPolicyStale int                  `json:"keys_policy_stale"`
+	KeysManualEdit  int                  `json:"keys_manual_edit"`
+	KeysUntracked   int                  `json:"keys_untracked"`
+	KeysCurrent     int                  `json:"keys_current"`
+	KeysCached      int                  `json:"keys_cached"`
+	KeysTranslated  int                  `json:"keys_translated"`
+	KeysSkipped     int                  `json:"keys_skipped"`
+	Batches         int                  `json:"batches"`
+	ProviderCalls   int                  `json:"provider_calls"`
+	CatalogWritten  bool                 `json:"catalog_written"`
+	ManifestUpdated bool                 `json:"manifest_updated"`
+	TokensIn        int                  `json:"tokens_in"`
+	TokensOut       int                  `json:"tokens_out"`
+	Errors          []string             `json:"errors,omitempty"`
 }
 
 // RunError reports that one or more locale jobs failed. Results remain
@@ -260,7 +263,7 @@ func prepareBundles(bundles []config.Bundle) ([]preparedBundle, error) {
 		}
 		units, err := formats.ParseSourceUnits(format, data, bundle.MessageSyntax)
 		if err != nil {
-			return nil, fmt.Errorf("parsing bundle %q source: %w", bundle.ID, err)
+			return nil, fmt.Errorf("parsing bundle %q source %s: %w", bundle.ID, bundle.Source, err)
 		}
 		prepared = append(prepared, preparedBundle{bundle: bundle, format: format, sourceUnits: units, sourceKeys: formats.UnitValues(units), sourceData: data})
 	}
@@ -351,6 +354,7 @@ func translateLocale(
 		}
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("parsing target %s: %v", targetPath, err))
+			errors.As(err, &result.InputError)
 			return jobOutput{result: result}
 		}
 	case os.IsNotExist(err):
@@ -447,6 +451,7 @@ func translateLocale(
 		})
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("batch %d: %v", i/batchSize+1, err))
+			errors.As(err, &result.InputError)
 			return jobOutput{result: result}
 		}
 		if response == nil {
@@ -514,6 +519,7 @@ func translateLocale(
 		}
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("serializing target %s: %v", targetPath, err))
+			errors.As(err, &result.InputError)
 			return jobOutput{result: result}
 		}
 		output = appendOneNewline(output)

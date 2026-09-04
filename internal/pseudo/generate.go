@@ -88,6 +88,13 @@ func Generate(cfg *config.Config, opts GenerateOptions) ([]GenerateResult, error
 			return nil, err
 		}
 		if existing, readErr := os.ReadFile(targetPath); readErr == nil {
+			// Force bypasses ownership, not JSON integrity: ambiguous members
+			// must be repaired explicitly before any catalog replacement.
+			if format.Name() == "json" {
+				if _, parseErr := parseTargetValues(format, sourceData, existing); parseErr != nil {
+					return nil, fmt.Errorf("parsing pseudo target %s: %w", targetPath, parseErr)
+				}
+			}
 			if !opts.Force && !pseudoOwnsArtifact(manifest, bundle.ID, canonicalLocale, format, sourceData, existing) {
 				return nil, fmt.Errorf("refusing to overwrite %s without --force because it is not a tracked pseudo artifact", targetPath)
 			}

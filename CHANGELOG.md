@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Reject duplicate JSON object members and flattened-key collisions before catalog content can be lost. These integrity checks apply with or without `--strict`, including LLM translation responses and catalog rewrite operations.
+- Report malformed catalogs during discovery and configuration checks. JSON errors identify conflicting member paths without printing translation values.
+- Refuse ambiguous existing JSON pseudolocale targets even with `--force`; repair the catalog before replacing it.
+
 ## 0.2.0 - 2026-09-04
 
 ### Added
