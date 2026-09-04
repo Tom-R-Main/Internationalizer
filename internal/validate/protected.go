@@ -9,7 +9,6 @@ import (
 )
 
 var (
-	htmlTagRe    = regexp.MustCompile(`(?s)<!--.*?-->|</?[A-Za-z][^>]*>`)
 	inlineCodeRe = regexp.MustCompile("`+[^`\\n]*`+")
 )
 
@@ -60,7 +59,7 @@ func ProtectedFindings(key, source, target, targetLocale string) []Finding {
 }
 
 func extractHTMLTags(input string) []string {
-	return htmlTagRe.FindAllString(input, -1)
+	return extractHTMLStructure(input)
 }
 
 func extractInlineCode(input string) []string {

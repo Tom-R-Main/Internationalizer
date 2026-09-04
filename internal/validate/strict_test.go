@@ -433,6 +433,32 @@ func TestProtectedFindingsCarryContextIntoNestedICUBranches(t *testing.T) {
 	}
 }
 
+func TestProtectedFindingsAllowNamedMarkupSlotsToMove(t *testing.T) {
+	source := `Read <a data-l10n-name="docs" href="/docs">the guide</a> or <button type="button" data-l10n-name="retry">retry</button>.`
+	target := `Vous pouvez <button data-l10n-name="retry" type="button">réessayer</button> ou lire <a href="/docs" data-l10n-name="docs">le guide</a>.`
+	if findings := ProtectedFindings("actions", source, target, "fr"); len(findings) != 0 {
+		t.Fatalf("valid named markup reordering produced findings: %#v", findings)
+	}
+}
+
+func TestProtectedFindingsRejectDamageToNamedMarkupSlots(t *testing.T) {
+	source := `Read <a data-l10n-name="docs" href="/docs"><strong>the guide</strong></a>.`
+	tests := map[string]string{
+		"changed protected attribute": `Lire <a data-l10n-name="docs" href="/other"><strong>le guide</strong></a>.`,
+		"changed element":             `Lire <button data-l10n-name="docs" href="/docs"><strong>le guide</strong></button>.`,
+		"changed contained markup":    `Lire <a data-l10n-name="docs" href="/docs"><em>le guide</em></a>.`,
+		"changed slot name":           `Lire <a data-l10n-name="help" href="/docs"><strong>le guide</strong></a>.`,
+		"unbalanced markup":           `Lire <a data-l10n-name="docs" href="/docs"><strong>le guide</a></strong>.`,
+	}
+	for name, target := range tests {
+		t.Run(name, func(t *testing.T) {
+			if findings := ProtectedFindings("docs", source, target, "fr"); len(findings) == 0 {
+				t.Fatal("damaged named markup was accepted")
+			}
+		})
+	}
+}
+
 func TestEvaluationCorpusSchemaAndIDsAreStable(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "test", "evaluation", "v1", "cases.json"))
 	if err != nil {
