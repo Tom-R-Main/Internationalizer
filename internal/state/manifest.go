@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/Tom-R-Main/Internationalizer/internal/locale"
 )
 
 const SchemaVersion = 1
@@ -62,6 +64,16 @@ func Load(path string) (*Manifest, error) {
 	if manifest.Translations == nil {
 		manifest.Translations = make(map[string]Entry)
 	}
+	canonicalTranslations := make(map[string]Entry, len(manifest.Translations))
+	for _, entry := range manifest.Translations {
+		entry.Locale = canonicalLocaleOrOriginal(entry.Locale)
+		identity := Identity(entry.Bundle, entry.Key, entry.Locale)
+		if existing, duplicate := canonicalTranslations[identity]; duplicate && existing != entry {
+			return nil, fmt.Errorf("manifest %s contains conflicting entries for %s/%s/%s", path, entry.Bundle, entry.Key, entry.Locale)
+		}
+		canonicalTranslations[identity] = entry
+	}
+	manifest.Translations = canonicalTranslations
 	return &manifest, nil
 }
 
@@ -85,12 +97,21 @@ func (m *Manifest) Set(entry Entry) {
 	if m.Translations == nil {
 		m.Translations = make(map[string]Entry)
 	}
+	entry.Locale = canonicalLocaleOrOriginal(entry.Locale)
 	m.Translations[Identity(entry.Bundle, entry.Key, entry.Locale)] = entry
 }
 
 // Identity returns a stable full SHA-256 identifier for a logical translation.
 func Identity(bundle, key, locale string) string {
-	return hashBytes([]byte(bundle + "\x00" + key + "\x00" + locale))
+	return hashBytes([]byte(bundle + "\x00" + key + "\x00" + canonicalLocaleOrOriginal(locale)))
+}
+
+func canonicalLocaleOrOriginal(value string) string {
+	canonical, err := locale.Canonical(value)
+	if err != nil {
+		return value
+	}
+	return canonical
 }
 
 // SourceHash binds translation reuse to both content and source format.

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/Tom-R-Main/Internationalizer/internal/locale"
 )
 
 // Record is a single translation memory entry.
@@ -69,6 +71,7 @@ func Load(path string) (*TM, error) {
 		if err := json.Unmarshal(line, &rec); err != nil {
 			return nil, fmt.Errorf("parsing TM %s line %d: %w", path, lineNumber, err)
 		}
+		rec = canonicalizeRecord(rec)
 		if t.index[rec.Locale] == nil {
 			t.index[rec.Locale] = make(map[string]Record)
 		}
@@ -83,7 +86,7 @@ func (t *TM) Lookup(locale, bundle, key, sourceHash, policyHash string) (Record,
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	localeMap, ok := t.index[locale]
+	localeMap, ok := t.index[canonicalLocaleOrOriginal(locale)]
 	if !ok {
 		return Record{}, false
 	}
@@ -98,6 +101,7 @@ func (t *TM) Lookup(locale, bundle, key, sourceHash, policyHash string) (Record,
 func (t *TM) Add(rec Record) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	rec = canonicalizeRecord(rec)
 
 	if err := os.MkdirAll(filepath.Dir(t.path), 0o755); err != nil {
 		return fmt.Errorf("creating TM directory: %w", err)
@@ -138,6 +142,9 @@ func (t *TM) AddBatch(records []Record) error {
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	for i := range records {
+		records[i] = canonicalizeRecord(records[i])
+	}
 
 	if err := os.MkdirAll(filepath.Dir(t.path), 0o755); err != nil {
 		return fmt.Errorf("creating TM directory: %w", err)
@@ -272,4 +279,17 @@ func HashSource(source string) string {
 
 func recordKey(bundle, key string) string {
 	return bundle + "\x00" + key
+}
+
+func canonicalizeRecord(rec Record) Record {
+	rec.Locale = canonicalLocaleOrOriginal(rec.Locale)
+	return rec
+}
+
+func canonicalLocaleOrOriginal(value string) string {
+	canonical, err := locale.Canonical(value)
+	if err != nil {
+		return value
+	}
+	return canonical
 }

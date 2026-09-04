@@ -83,6 +83,33 @@ func TestTMLookupRequiresMatchingPolicy(t *testing.T) {
 	}
 }
 
+func TestTMLocaleIdentityIsCanonical(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tm.jsonl")
+	memory, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := Record{Bundle: "app", Key: "save", Source: "Save", Target: "Salvar", Locale: "pt-br", Hash: HashSource("Save"), PolicyHash: "policy-v1", Timestamp: time.Now()}
+	if err := memory.Add(record); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := memory.Lookup("pt-BR", "app", "save", HashSource("Save"), "policy-v1")
+	if !ok {
+		t.Fatal("canonical-equivalent locale did not reuse the translation")
+	}
+	if got.Locale != "pt-BR" {
+		t.Fatalf("stored locale = %q, want %q", got.Locale, "pt-BR")
+	}
+
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reloaded.Lookup("pt-BR", "app", "save", HashSource("Save"), "policy-v1"); !ok {
+		t.Fatal("canonical-equivalent locale did not reuse the translation after reload")
+	}
+}
+
 func TestLoadRejectsMalformedRecord(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tm.jsonl")
 	if err := os.WriteFile(path, []byte("{\n"), 0o644); err != nil {

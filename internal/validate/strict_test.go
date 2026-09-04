@@ -221,14 +221,14 @@ func TestTargetOnlyPluralFormsReceiveContentAndStateValidation(t *testing.T) {
 	}
 }
 
-func TestUnknownLocaleDoesNotGuessPluralRequirements(t *testing.T) {
+func TestPrivateUseLocaleUsesRootPluralRequirements(t *testing.T) {
 	cfg := validationConfig(t,
 		map[string]string{"items_one": "{{count}} item", "items_other": "{{count}} items"},
 		map[string]string{"items_one": "{{count}} x", "items_other": "{{count}} xs"},
 	)
 	oldTarget := targetPath(cfg)
-	cfg.TargetLocales = []string{"xx-ZZ"}
-	newTarget := filepath.Join(filepath.Dir(oldTarget), "xx-ZZ.json")
+	cfg.TargetLocales = []string{"qaa-ZZ"}
+	newTarget := filepath.Join(filepath.Dir(oldTarget), "qaa-ZZ.json")
 	if err := os.Rename(oldTarget, newTarget); err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestUnknownLocaleDoesNotGuessPluralRequirements(t *testing.T) {
 		t.Fatal(err)
 	}
 	if findingByCode(reports[0], CodePluralFormMissing).Code != "" {
-		t.Fatalf("unknown locale received guessed plural finding: %#v", reports[0])
+		t.Fatalf("private-use locale received an unsupported plural finding: %#v", reports[0])
 	}
 
 	writeJSON(t, newTarget, map[string]string{"items_other": "{{count}} xs"})
@@ -247,7 +247,9 @@ func TestUnknownLocaleDoesNotGuessPluralRequirements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertFindingCodes(t, reports[0], CodeMissingKey)
+	if HasFailures(reports) {
+		t.Fatalf("root plural fallback rejected an other-only target: %#v", reports[0])
+	}
 }
 
 func TestI18nextPluralCoverageUsesTargetLocaleRequirements(t *testing.T) {
@@ -336,9 +338,53 @@ func TestProtectedFindingsUseStableCodeForEveryStructure(t *testing.T) {
 	}
 	for name, values := range tests {
 		t.Run(name, func(t *testing.T) {
-			findings := ProtectedFindings("key", values[0], values[1])
+			findings := ProtectedFindings("key", values[0], values[1], "fr")
 			if len(findings) == 0 || findings[0].Code != CodeProtectedStructureMismatch {
 				t.Fatalf("findings = %#v", findings)
+			}
+		})
+	}
+}
+
+func TestProtectedFindingsCompareICUStructuresPerLocaleBranch(t *testing.T) {
+	tests := map[string]string{
+		"html":        "<strong>Save</strong>",
+		"inline code": "`go test`",
+		"fenced code": "```go\ngo test\n```\n",
+		"link":        "[Guide](https://example.com/guide)",
+	}
+	for name, protected := range tests {
+		t.Run(name, func(t *testing.T) {
+			source := "{n, plural, one {" + protected + "} other {" + protected + "}}"
+			target := "{n, plural, one {" + protected + "} few {" + protected + "} many {" + protected + "} other {" + protected + "}}"
+			if findings := ProtectedFindings("key", source, target, "ru"); len(findings) != 0 {
+				t.Fatalf("valid target-only ICU branches produced findings: %#v", findings)
+			}
+
+			damaged := "{n, plural, one {" + protected + "} few {damaged} many {" + protected + "} other {" + protected + "}}"
+			if findings := ProtectedFindings("key", source, damaged, "ru"); len(findings) == 0 {
+				t.Fatal("damaged target-only ICU branch was accepted")
+			}
+		})
+	}
+}
+
+func TestProtectedFindingsCarryContextIntoNestedICUBranches(t *testing.T) {
+	argument := "{os, select, win {dir} other {ls}}"
+	damagedArgument := "{os, select, win {répertoire} other {ls}}"
+	tests := map[string][2]string{
+		"html attribute": {`<span data-command="` + argument + `">Run</span>`, `<span data-command="` + damagedArgument + `">Exécuter</span>`},
+		"inline code":    {"`" + argument + "`", "`" + damagedArgument + "`"},
+		"fenced code":    {"```sh\n" + argument + "\n```\n", "```sh\n" + damagedArgument + "\n```\n"},
+		"link":           {"[Run](" + argument + ")", "[Exécuter](" + damagedArgument + ")"},
+	}
+	for name, values := range tests {
+		t.Run(name, func(t *testing.T) {
+			if findings := ProtectedFindings("key", values[0], values[0], "fr"); len(findings) != 0 {
+				t.Fatalf("unchanged nested ICU protection produced findings: %#v", findings)
+			}
+			if findings := ProtectedFindings("key", values[0], values[1], "fr"); len(findings) == 0 {
+				t.Fatal("damaged nested ICU protected content was accepted")
 			}
 		})
 	}

@@ -1,66 +1,13 @@
 package validate
 
-import "strings"
+import (
+	"strings"
 
-// CLDRPluralForms maps locale codes to their required CLDR plural categories.
-// Source: Unicode CLDR plural rules for the most common languages.
-var CLDRPluralForms = map[string][]string{
-	// Germanic
-	"en":    {"one", "other"},
-	"en-US": {"one", "other"},
-	"en-GB": {"one", "other"},
-	"de":    {"one", "other"},
-	"nl":    {"one", "other"},
-	"sv":    {"one", "other"},
-	"da":    {"one", "other"},
-	"nb":    {"one", "other"},
-	"fi":    {"one", "other"},
-
-	// Romance
-	"fr":    {"one", "many", "other"},
-	"fr-CA": {"one", "many", "other"},
-	"es":    {"one", "many", "other"},
-	"es-MX": {"one", "many", "other"},
-	"pt":    {"one", "many", "other"},
-	"pt-BR": {"one", "many", "other"},
-	"it":    {"one", "many", "other"},
-	"ro":    {"one", "few", "other"},
-
-	// Slavic
-	"ru": {"one", "few", "many", "other"},
-	"uk": {"one", "few", "many", "other"},
-	"pl": {"one", "few", "many", "other"},
-	"cs": {"one", "few", "many", "other"},
-
-	// Semitic
-	"ar": {"zero", "one", "two", "few", "many", "other"},
-	"he": {"one", "two", "other"},
-
-	// Indic
-	"hi": {"one", "other"},
-	"bn": {"one", "other"},
-	"pa": {"one", "other"},
-	"te": {"one", "other"},
-
-	// CJK (no plural forms — only "other")
-	"ja":    {"other"},
-	"ko":    {"other"},
-	"zh":    {"other"},
-	"zh-CN": {"other"},
-	"zh-TW": {"other"},
-	"yue":   {"other"},
-
-	// Other
-	"tr": {"one", "other"},
-	"id": {"other"},
-	"vi": {"other"},
-	"th": {"other"},
-	"el": {"one", "other"},
-	"hu": {"one", "other"},
-}
+	localeid "github.com/Tom-R-Main/Internationalizer/internal/locale"
+)
 
 // PluralFormsFor returns the CLDR plural categories for a locale.
-// Falls back to ["one", "other"] if the locale is not in the table.
+// It retains the historical ["one", "other"] fallback for an invalid tag.
 func PluralFormsFor(locale string) []string {
 	if forms, ok := KnownPluralFormsFor(locale); ok {
 		return forms
@@ -68,22 +15,11 @@ func PluralFormsFor(locale string) []string {
 	return []string{"one", "other"}
 }
 
-// KnownPluralFormsFor returns configured CLDR categories without guessing for
-// unknown locales. Strict validation uses this form to avoid false failures.
+// KnownPluralFormsFor returns CLDR-backed cardinal categories for a valid
+// locale. Invalid or unrecognized tags are not guessed.
 func KnownPluralFormsFor(locale string) ([]string, bool) {
-	if forms, ok := CLDRPluralForms[locale]; ok {
-		return forms, true
-	}
-	for configuredLocale, forms := range CLDRPluralForms {
-		if strings.EqualFold(configuredLocale, locale) {
-			return forms, true
-		}
-	}
-	if separator := strings.IndexAny(locale, "-_"); separator > 0 {
-		forms, ok := CLDRPluralForms[strings.ToLower(locale[:separator])]
-		return forms, ok
-	}
-	return nil, false
+	forms, err := localeid.CardinalCategories(locale)
+	return forms, err == nil
 }
 
 // ExpandI18nextV4Source returns the source key set plus any target-only plural

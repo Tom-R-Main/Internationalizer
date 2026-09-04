@@ -48,8 +48,12 @@ func newTranslateCmd() *cobra.Command {
 					selectedLocales = cfg.TargetLocales
 				}
 				needsDefaultProvider := false
-				for _, locale := range selectedLocales {
-					if _, ok := cfg.LLM.LocaleOverrides[locale]; !ok {
+				for _, requested := range selectedLocales {
+					locale, ok := cfg.ConfiguredTargetLocale(requested)
+					if !ok {
+						return fmt.Errorf("locale %q is not in target_locales", requested)
+					}
+					if !cfg.HasLLMOverrideForLocale(locale) {
 						needsDefaultProvider = true
 						break
 					}
@@ -60,8 +64,12 @@ func newTranslateCmd() *cobra.Command {
 						return err
 					}
 				}
-				for _, locale := range selectedLocales {
-					if _, ok := cfg.LLM.LocaleOverrides[locale]; !ok {
+				for _, requested := range selectedLocales {
+					locale, ok := cfg.ConfiguredTargetLocale(requested)
+					if !ok {
+						return fmt.Errorf("locale %q is not in target_locales", requested)
+					}
+					if !cfg.HasLLMOverrideForLocale(locale) {
 						continue
 					}
 					localeLLM := cfg.LLMForLocale(locale)

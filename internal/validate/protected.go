@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/Tom-R-Main/Internationalizer/internal/message"
 )
 
 var (
@@ -14,24 +16,66 @@ var (
 // ProtectedFindings compares source and target structures that translations
 // must preserve exactly. Multiple damaged structures may yield multiple
 // findings with the same stable code and distinct messages.
-func ProtectedFindings(key, source, target string) []Finding {
+func ProtectedFindings(key, source, target, targetLocale string) []Finding {
 	var findings []Finding
-	if mismatch := InterpolationMismatch(key, source, target); mismatch != nil {
-		findings = append(findings, protectedFinding(key, "interpolation variables", mismatch.SourceVars, mismatch.TargetVars))
+	icu := usesICUValidation(source, target)
+	if !icu {
+		if mismatch := InterpolationMismatch(key, source, target); mismatch != nil {
+			findings = append(findings, protectedFinding(key, "interpolation variables", mismatch.SourceVars, mismatch.TargetVars))
+		}
 	}
-	if sourceTags, targetTags := htmlTagRe.FindAllString(source, -1), htmlTagRe.FindAllString(target, -1); !equalStrings(sourceTags, targetTags) {
-		findings = append(findings, protectedFinding(key, "HTML structure", sourceTags, targetTags))
+	checks := []struct {
+		name    string
+		extract func(string) []string
+	}{
+		{"HTML structure", extractHTMLTags},
+		{"fenced code", extractFencedCode},
+		{"inline code", extractInlineCode},
+		{"markdown link destinations", extractLinkDestinations},
 	}
-	if sourceBlocks, targetBlocks := extractFencedCode(source), extractFencedCode(target); !equalStrings(sourceBlocks, targetBlocks) {
-		findings = append(findings, protectedFinding(key, "fenced code", sourceBlocks, targetBlocks))
+	tokenizers := make([]func(string) []string, len(checks))
+	for index, check := range checks {
+		tokenizers[index] = check.extract
 	}
-	if sourceCode, targetCode := inlineCodeRe.FindAllString(source, -1), inlineCodeRe.FindAllString(target, -1); !equalStrings(sourceCode, targetCode) {
-		findings = append(findings, protectedFinding(key, "inline code", sourceCode, targetCode))
+	preservedKinds := make([]bool, len(checks))
+	if icu {
+		var err error
+		preservedKinds, err = message.PreservedTextTokenKinds(source, target, targetLocale, tokenizers)
+		if err != nil {
+			icu = false
+		}
 	}
-	if sourceLinks, targetLinks := extractLinkDestinations(source), extractLinkDestinations(target); !equalStrings(sourceLinks, targetLinks) {
-		findings = append(findings, protectedFinding(key, "markdown link destinations", sourceLinks, targetLinks))
+	for index, check := range checks {
+		sourceTokens := check.extract(source)
+		targetTokens := check.extract(target)
+		preserved := equalStrings(sourceTokens, targetTokens)
+		if icu {
+			preserved = preservedKinds[index]
+		}
+		if !preserved {
+			findings = append(findings, protectedFinding(key, check.name, sourceTokens, targetTokens))
+		}
 	}
 	return findings
+}
+
+func extractHTMLTags(input string) []string {
+	return htmlTagRe.FindAllString(input, -1)
+}
+
+func extractInlineCode(input string) []string {
+	return inlineCodeRe.FindAllString(input, -1)
+}
+
+func usesICUValidation(source, target string) bool {
+	if !message.LooksLike(source) || !message.LooksLike(target) {
+		return false
+	}
+	if _, err := message.Parse(source); err != nil {
+		return false
+	}
+	_, err := message.Parse(target)
+	return err == nil
 }
 
 func protectedFinding(key, structure string, expected, actual []string) Finding {

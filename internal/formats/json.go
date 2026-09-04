@@ -103,6 +103,12 @@ func serializePreservingOrder(entries map[string]string, original []byte) ([]byt
 		return nil, fmt.Errorf("json parse original: %w", err)
 	}
 	replaced := make(map[string]struct{}, len(entries))
+	if _, rootString := raw.(string); rootString {
+		if replacement, ok := entries[""]; ok {
+			raw = replacement
+			replaced[""] = struct{}{}
+		}
+	}
 	replaceLeaves("", raw, entries, replaced)
 	for key, value := range entries {
 		if _, ok := replaced[key]; ok {

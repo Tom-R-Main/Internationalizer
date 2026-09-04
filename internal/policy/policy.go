@@ -5,6 +5,7 @@ import (
 	"github.com/Tom-R-Main/Internationalizer/internal/config"
 	"github.com/Tom-R-Main/Internationalizer/internal/glossary"
 	"github.com/Tom-R-Main/Internationalizer/internal/llm"
+	"github.com/Tom-R-Main/Internationalizer/internal/locale"
 	"github.com/Tom-R-Main/Internationalizer/internal/state"
 )
 
@@ -22,10 +23,23 @@ type Resolved struct {
 // already-loaded style-guide and glossary content so policy resolution remains
 // independent of filesystem layout.
 func Resolve(cfg *config.Config, targetLocale, format, styleGuide string, terms []glossary.Term) (Resolved, error) {
-	effectiveLLM := cfg.LLMForLocale(targetLocale)
-	prompt := llm.BuildSystemPrompt(cfg.SourceLocale, targetLocale, styleGuide, terms)
+	sourceLocale := cfg.SourceLocale
+	if sourceLocale == "" {
+		sourceLocale = "en"
+	}
+	canonicalSource, err := locale.Canonical(sourceLocale)
+	if err != nil {
+		return Resolved{}, err
+	}
+	canonicalTarget, err := locale.Canonical(targetLocale)
+	if err != nil {
+		return Resolved{}, err
+	}
+
+	effectiveLLM := cfg.LLMForLocale(canonicalTarget)
+	prompt := llm.BuildSystemPrompt(canonicalSource, canonicalTarget, styleGuide, terms)
 	if format == "markdown" {
-		prompt = llm.BuildDocumentPrompt(cfg.SourceLocale, targetLocale, styleGuide, terms)
+		prompt = llm.BuildDocumentPrompt(canonicalSource, canonicalTarget, styleGuide, terms)
 	}
 
 	hash, err := state.HashValue(struct {
@@ -37,7 +51,7 @@ func Resolve(cfg *config.Config, targetLocale, format, styleGuide string, terms 
 		Model        string `json:"model"`
 		Reasoning    string `json:"reasoning_effort"`
 		Prompt       string `json:"prompt"`
-	}{promptPolicyVersion, cfg.SourceLocale, targetLocale, format, effectiveLLM.Provider, effectiveLLM.Model, llm.EffectiveReasoningEffort(effectiveLLM), prompt})
+	}{promptPolicyVersion, canonicalSource, canonicalTarget, format, effectiveLLM.Provider, effectiveLLM.Model, llm.EffectiveReasoningEffort(effectiveLLM), prompt})
 	if err != nil {
 		return Resolved{}, err
 	}
