@@ -122,6 +122,35 @@ silently reinterpreted as plain text.
 
 ## JSON, filtering, and failures
 
+### Catalog integrity
+
+JSON catalogs must have unique object members and unambiguous flattened keys.
+For example, `{"a.b":"First","a":{"b":"Second"}}` gives two values the
+same catalog identity, `a.b`, and is rejected. Duplicate members are rejected
+even when their values match or their names use different JSON escapes.
+These checks apply without `--strict`; sorting keys or choosing the last value
+would discard content, not repair it.
+
+Errors use `json_duplicate_member` or `json_flattened_key_collision`. Source
+errors include member locations under `errors[].details`; target validation
+findings include `path` and `other_path`. Locations are JSON pointers into the
+catalog; the containing error or report identifies the catalog file. Resolve
+the conflicting members explicitly, preserving the intended messages and
+placeholders. Internationalizer does not choose a surviving value for you.
+
+Discovery keeps malformed catalog candidates visible with `parse_error_code`.
+`detect` remains advisory; `config check` fails when an error diagnostic exists,
+even if presentation filters hide it. The same integrity checks protect LLM
+response parsing and JSON catalog rewrites. `pseudo --force` bypasses ownership
+checks, not JSON integrity checks.
+
+Translation jobs expose a structured `input_error` when a target catalog or
+provider response fails JSON integrity checks. The run can still report
+`translation_failed` because other jobs may have completed; inspect the job's
+error code and persistence flags before retrying.
+
+### Output envelope
+
 The onboarding commands, `commands`, `translate`, and `validate` use this envelope
 when `--json` is supplied:
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Tom-R-Main/Internationalizer/internal/config"
+	"github.com/Tom-R-Main/Internationalizer/internal/jsonintegrity"
 	localeid "github.com/Tom-R-Main/Internationalizer/internal/locale"
 	"github.com/spf13/cobra"
 )
@@ -18,9 +19,10 @@ type recoveryAction struct {
 }
 
 type jsonFailure struct {
-	Code     string           `json:"code"`
-	Message  string           `json:"message"`
-	Recovery []recoveryAction `json:"recovery"`
+	Code     string            `json:"code"`
+	Message  string            `json:"message"`
+	Recovery []recoveryAction  `json:"recovery"`
+	Details  map[string]string `json:"details,omitempty"`
 }
 
 type jsonEnvelope struct {
@@ -75,7 +77,14 @@ func emitJSON(cmd *cobra.Command, status string, data any, err error) error {
 		if errors.Is(err, errValidationFailed) {
 			code = "validation_failed"
 		}
-		envelope.Errors = append(envelope.Errors, jsonFailure{Code: code, Message: safeErrorMessage(err), Recovery: []recoveryAction{errorRecovery(cmd, code)}})
+		failure := jsonFailure{Code: code, Message: safeErrorMessage(err), Recovery: []recoveryAction{errorRecovery(cmd, code)}}
+		var integrity *jsonintegrity.Error
+		if errors.As(err, &integrity) {
+			failure.Code = integrity.JSONCode()
+			failure.Recovery = []recoveryAction{errorRecovery(cmd, failure.Code)}
+			failure.Details = map[string]string{"key": integrity.Key, "path": integrity.Path, "other_path": integrity.OtherPath}
+		}
+		envelope.Errors = append(envelope.Errors, failure)
 	}
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
@@ -92,6 +101,8 @@ func errorRecovery(cmd *cobra.Command, code string) recoveryAction {
 	action := recoveryAction{Argv: []string{"internationalizer", "config", "check", "--json"}, SideEffects: []string{}, RequiredDecisions: []string{}}
 	withConfig := true
 	switch strings.ToLower(code) {
+	case "json_duplicate_member", "json_flattened_key_collision":
+		action.RequiredDecisions = []string{"repair_catalog_structure_without_discarding_values"}
 	case "invalid_arguments", "invalid_plan":
 		action.Argv = []string{"internationalizer", "commands", "--json"}
 		withConfig = false
