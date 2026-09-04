@@ -74,6 +74,9 @@ func TestWorkflowInputSchemaHasTypedFlags(t *testing.T) {
 			if flagProps["add-bundle"].(map[string]any)["type"] != "array" {
 				t.Fatal("repeatable add-bundle flag is not an array")
 			}
+			if flagProps["update-bundle"].(map[string]any)["type"] != "array" || flagProps["target"].(map[string]any)["type"] != "array" {
+				t.Fatal("repeatable update-bundle and target flags must be arrays")
+			}
 		case "apply":
 			if !slices.Contains(flags["required"].([]string), "plan") {
 				t.Fatal("apply does not require an explicit plan")

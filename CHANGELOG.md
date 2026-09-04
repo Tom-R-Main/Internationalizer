@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Retarget existing bundles with `config plan --update-bundle ID --target ID=TEMPLATE`, preserving bundle identities and omitted settings.
+- Explain rejected symlink paths with bundle and locale context and, where safely available, an in-project destination to review. Explicit retargeting can repair the configuration without following or changing old links.
+
 ## 0.2.0 - 2026-09-04
 
 ### Added

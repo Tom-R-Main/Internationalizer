@@ -38,7 +38,7 @@ func assignments(values []string) (map[string]string, error) {
 
 func newConfigPlanCmd() *cobra.Command {
 	var path, out, sourceLocale string
-	var additions, syntaxes, targets, confirm, locales []string
+	var additions, updates, syntaxes, targets, confirm, locales []string
 	var asJSON bool
 	cmd := &cobra.Command{Use: "plan", Short: "Propose a reviewable config change; never apply it", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		adds, err := assignments(additions)
@@ -53,13 +53,28 @@ func newConfigPlanCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		opts := onboarding.PlanOptions{Syntax: map[string]message.Syntax{}, ConfirmSources: confirm, SourceLocale: sourceLocale, TargetLocales: locales}
+		opts := onboarding.PlanOptions{UpdateTargets: map[string]string{}, Syntax: map[string]message.Syntax{}, ConfirmSources: confirm, SourceLocale: sourceLocale, TargetLocales: locales}
+		for _, id := range updates {
+			if id == "" {
+				return fmt.Errorf("--update-bundle requires an existing bundle ID")
+			}
+			if _, duplicate := opts.UpdateTargets[id]; duplicate {
+				return fmt.Errorf("duplicate update decision for %q", id)
+			}
+			if _, adding := adds[id]; adding {
+				return fmt.Errorf("bundle %q cannot be both added and updated", id)
+			}
+			if targetMap[id] == "" {
+				return fmt.Errorf("--update-bundle %s requires --target %s=path/{locale}.json", id, id)
+			}
+			opts.UpdateTargets[id] = targetMap[id]
+		}
 		for id, mode := range modes {
 			opts.Syntax[id] = message.Syntax(mode)
 		}
 		for id := range targetMap {
-			if _, ok := adds[id]; !ok {
-				return fmt.Errorf("--target %s requires --add-bundle %s=source", id, id)
+			if _, ok := adds[id]; !ok && opts.UpdateTargets[id] == "" {
+				return fmt.Errorf("--target %s requires --add-bundle %s=source or --update-bundle %s", id, id, id)
 			}
 		}
 		if len(adds) > 0 {
@@ -138,8 +153,9 @@ func newConfigPlanCmd() *cobra.Command {
 	cmd.Flags().StringVar(&path, "config", "", "Configuration path")
 	cmd.Flags().StringVar(&out, "out", "", "Save plan to a new file (never overwrites)")
 	cmd.Flags().StringArrayVar(&additions, "add-bundle", nil, "Explicit bundle ID=discovered-source-path (repeatable)")
+	cmd.Flags().StringArrayVar(&updates, "update-bundle", nil, "Explicit existing bundle ID to retarget with --target (repeatable)")
 	cmd.Flags().StringArrayVar(&syntaxes, "syntax", nil, "Explicit bundle ID=plain|i18next|icu|auto (repeatable)")
-	cmd.Flags().StringArrayVar(&targets, "target", nil, "Target override for added bundle ID=path/{locale}.json")
+	cmd.Flags().StringArrayVar(&targets, "target", nil, "Explicit target for added or updated bundle ID=path/{locale}.json (repeatable)")
 	cmd.Flags().StringArrayVar(&confirm, "confirm-source", nil, "Confirm authoritative source path, including tmp/ (repeatable)")
 	cmd.Flags().StringVar(&sourceLocale, "source-locale", "", "Explicit source locale (existing setting preserved when omitted)")
 	cmd.Flags().StringArrayVar(&locales, "locale", nil, "Explicit target locale set (repeatable; existing set preserved when omitted)")
