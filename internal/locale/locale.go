@@ -155,7 +155,7 @@ func categories(input string, pluralType PluralType) ([]string, error) {
 func hasCompactExponentMany(tag language.Tag) bool {
 	base, _ := tag.Base()
 	switch base.String() {
-	case "ca", "es", "fr", "gl", "it", "pt", "scn", "vec":
+	case "ca", "es", "fr", "gl", "it", "lld", "pt", "scn", "vec":
 		return true
 	default:
 		return false
@@ -179,7 +179,7 @@ func needsCurrentCardinalOne(tag language.Tag) bool {
 	base, _ := tag.Base()
 	// These languages postdate x/text's embedded plural tables.
 	switch base.String() {
-	case "scn", "vec":
+	case "lld", "scn", "vec":
 		return true
 	default:
 		return false
@@ -196,7 +196,7 @@ func needsCurrentOrdinalMany(tag language.Tag) bool {
 	base, _ := tag.Base()
 	// Sicilian and Venetian ordinal rules postdate x/text's embedded tables.
 	switch base.String() {
-	case "kw", "scn", "vec":
+	case "kw", "lld", "scn", "vec":
 		return true
 	default:
 		return false

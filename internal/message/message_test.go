@@ -83,6 +83,34 @@ func TestCompareAllowsLocaleCategoryAndExactSelector(t *testing.T) {
 	}
 }
 
+func TestCompareRejectsArgumentIntroducedByTargetOnlyExactSelector(t *testing.T) {
+	issues := Compare(
+		"{n, plural, other {# items}}",
+		"{n, plural, =0 {{price, number}} other {# articles}}",
+		"fr",
+	)
+	if !hasCode(issues, CodeArgumentMismatch) {
+		t.Fatalf("Compare issues = %#v, want target-only exact argument mismatch", issues)
+	}
+}
+
+func TestParseRejectsNonFiniteAndMalformedExactSelectors(t *testing.T) {
+	for _, selector := range []string{"NaN", "Inf", "Infinity", "1.", "0x1p2"} {
+		t.Run(selector, func(t *testing.T) {
+			if _, err := Parse("{n, plural, =" + selector + " {bad} other {ok}}"); err == nil {
+				t.Fatalf("Parse accepted invalid exact selector %q", selector)
+			}
+		})
+	}
+	for _, selector := range []string{"0", "-1", "1.5"} {
+		t.Run("valid_"+selector, func(t *testing.T) {
+			if _, err := Parse("{n, plural, =" + selector + " {ok} other {other}}"); err != nil {
+				t.Fatalf("Parse rejected valid exact selector %q: %v", selector, err)
+			}
+		})
+	}
+}
+
 func TestCompareChecksTargetOnlyLocaleCategoryAgainstSourceOther(t *testing.T) {
 	source := "{count, plural, one {{name} has one item} other {{name} has # items}}"
 	valid := "{count, plural, one {{name} имеет один предмет} few {{name} имеет # предмета} other {{name} имеет # предметов}}"

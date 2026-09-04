@@ -86,6 +86,7 @@ func TestSupportedLocalesMatchCLDR49CategorySets(t *testing.T) {
 		"ja":    {[]string{"other"}, []string{"other"}},
 		"ko":    {[]string{"other"}, []string{"other"}},
 		"kw":    {[]string{"zero", "one", "two", "few", "many", "other"}, []string{"one", "many", "other"}},
+		"lld":   {[]string{"one", "many", "other"}, []string{"many", "other"}},
 		"ms":    {[]string{"other"}, []string{"one", "other"}},
 		"mt":    {[]string{"one", "two", "few", "many", "other"}, []string{"other"}},
 		"nl":    {[]string{"one", "other"}, []string{"other"}},

@@ -300,12 +300,61 @@ func compareArguments(source, target *Argument, targetLocale string) []Issue {
 		}
 		sourceOther := sourceOptions["other"]
 		for selector, targetBranch := range targetOptions {
-			if _, sourceHasSelector := sourceOptions[selector]; !sourceHasSelector && !isExactSelector(selector) {
+			if _, sourceHasSelector := sourceOptions[selector]; sourceHasSelector {
+				continue
+			}
+			if isExactSelector(selector) {
+				issues = append(issues, compareTargetArgumentSubset(sourceOther, targetBranch, targetLocale)...)
+			} else {
 				issues = append(issues, compareMessages(sourceOther, targetBranch, targetLocale, name)...)
 			}
 		}
 	}
 	return issues
+}
+
+func compareTargetArgumentSubset(source, target *Message, targetLocale string) []Issue {
+	sourceArguments := immediateArguments(source)
+	targetArguments := immediateArguments(target)
+	var issues []Issue
+	for name, targetOccurrences := range targetArguments {
+		sourceOccurrences, ok := sourceArguments[name]
+		if !ok {
+			issues = append(issues, Issue{Code: CodeArgumentMismatch, Argument: name, Message: fmt.Sprintf("ICU exact-selector branch introduces argument %q that is absent from the source fallback branch", name)})
+			continue
+		}
+		if len(targetOccurrences) > len(sourceOccurrences) || !hasArgumentSubsetMatching(sourceOccurrences, targetOccurrences, targetLocale) {
+			issues = append(issues, Issue{Code: CodeArgumentMismatch, Argument: name, Message: fmt.Sprintf("ICU exact-selector branch introduces an incompatible occurrence of argument %q", name)})
+		}
+	}
+	return issues
+}
+
+func hasArgumentSubsetMatching(source, target []*Argument, targetLocale string) bool {
+	matchedTarget := make([]int, len(source))
+	for index := range matchedTarget {
+		matchedTarget[index] = -1
+	}
+	var match func(int, []bool) bool
+	match = func(targetIndex int, visited []bool) bool {
+		for sourceIndex := range source {
+			if visited[sourceIndex] || len(compareArguments(source[sourceIndex], target[targetIndex], targetLocale)) != 0 {
+				continue
+			}
+			visited[sourceIndex] = true
+			if matchedTarget[sourceIndex] == -1 || match(matchedTarget[sourceIndex], visited) {
+				matchedTarget[sourceIndex] = targetIndex
+				return true
+			}
+		}
+		return false
+	}
+	for targetIndex := range target {
+		if !match(targetIndex, make([]bool, len(source))) {
+			return false
+		}
+	}
+	return true
 }
 
 func comparePluralSelectors(source, target *Argument, targetLocale string) []Issue {
@@ -395,8 +444,28 @@ func isExactSelector(selector string) bool {
 	if !strings.HasPrefix(selector, "=") || len(selector) == 1 {
 		return false
 	}
-	_, err := strconv.ParseFloat(selector[1:], 64)
-	return err == nil
+	number := selector[1:]
+	if number[0] == '-' {
+		number = number[1:]
+	}
+	if number == "" {
+		return false
+	}
+	dotSeen := false
+	digitSeenAfterDot := false
+	for _, character := range number {
+		switch {
+		case character >= '0' && character <= '9':
+			if dotSeen {
+				digitSeenAfterDot = true
+			}
+		case character == '.' && !dotSeen:
+			dotSeen = true
+		default:
+			return false
+		}
+	}
+	return !dotSeen || digitSeenAfterDot
 }
 
 type parser struct {
