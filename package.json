@@ -1,6 +1,6 @@
 {
   "name": "internationalizer",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "AI-native internationalization CLI for software projects",
   "license": "AGPL-3.0-only",
   "bin": {
@@ -10,17 +10,19 @@
     "bin",
     "assets",
     "README.md",
+    "CHANGELOG.md",
+    "docs/cli-onboarding.md",
     "LICENSE"
   ],
   "engines": {
     "node": ">=18"
   },
   "optionalDependencies": {
-    "internationalizer-darwin-arm64": "0.1.3",
-    "internationalizer-darwin-x64": "0.1.3",
-    "internationalizer-linux-arm64": "0.1.3",
-    "internationalizer-linux-x64": "0.1.3",
-    "internationalizer-win32-x64": "0.1.3"
+    "internationalizer-darwin-arm64": "0.2.0",
+    "internationalizer-darwin-x64": "0.2.0",
+    "internationalizer-linux-arm64": "0.2.0",
+    "internationalizer-linux-x64": "0.2.0",
+    "internationalizer-win32-x64": "0.2.0"
   },
   "scripts": {
     "test:npm-wrapper": "node --test test/npm-wrapper.test.cjs",

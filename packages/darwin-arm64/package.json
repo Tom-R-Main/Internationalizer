@@ -1,6 +1,6 @@
 {
   "name": "internationalizer-darwin-arm64",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "darwin arm64 binary for the internationalizer CLI",
   "license": "AGPL-3.0-only",
   "os": [
