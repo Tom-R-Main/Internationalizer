@@ -136,6 +136,21 @@ func TestParseImplicitlyClosesApostropheQuoteAtEnd(t *testing.T) {
 	}
 }
 
+func TestParseAllowsWhitespaceAfterPluralOffsetColon(t *testing.T) {
+	if _, err := Parse("{n, plural, offset: 1 one {One} other {# items}}"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestParseValidatesSelectKeywords(t *testing.T) {
+	if _, err := Parse("{g, select, male,female {x} other {y}}"); err == nil {
+		t.Fatal("Parse accepted punctuation in select keyword")
+	}
+	if _, err := Parse("{g, select, мужчина {x} other {y}}"); err != nil {
+		t.Fatalf("Parse rejected Unicode select keyword: %v", err)
+	}
+}
+
 func TestCompareChecksTargetOnlyLocaleCategoryAgainstSourceOther(t *testing.T) {
 	source := "{count, plural, one {{name} has one item} other {{name} has # items}}"
 	valid := "{count, plural, one {{name} имеет один предмет} few {{name} имеет # предмета} other {{name} имеет # предметов}}"

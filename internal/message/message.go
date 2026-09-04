@@ -653,6 +653,7 @@ func (p *parser) parseArgument(pluralContext bool) (*Argument, error) {
 	if argumentType == ArgumentPlural || argumentType == ArgumentSelectOrdinal {
 		if strings.HasPrefix(p.input[p.position:], "offset:") {
 			p.position += len("offset:")
+			p.skipSpace()
 			start := p.position
 			for p.position < len(p.input) && p.input[p.position] >= '0' && p.input[p.position] <= '9' {
 				p.position++
@@ -683,7 +684,11 @@ func (p *parser) parseArgument(pluralContext bool) (*Argument, error) {
 		if _, duplicate := selectors[selector]; duplicate {
 			return nil, p.errorf("duplicate selector %q for argument %q", selector, name)
 		}
-		if argumentType != ArgumentSelect && !isPluralSelector(selector) {
+		if argumentType == ArgumentSelect {
+			if !isIdentifier(selector) {
+				return nil, p.errorf("invalid select keyword %q", selector)
+			}
+		} else if !isPluralSelector(selector) {
 			return nil, p.errorf("invalid plural selector %q", selector)
 		}
 		selectors[selector] = struct{}{}
@@ -774,6 +779,20 @@ func identifierWidth(input string, position int) int {
 		return 0
 	}
 	return width
+}
+
+func isIdentifier(input string) bool {
+	if input == "" {
+		return false
+	}
+	for position := 0; position < len(input); {
+		width := identifierWidth(input, position)
+		if width == 0 {
+			return false
+		}
+		position += width
+	}
+	return true
 }
 
 func spaceWidth(input string, position int) int {
